@@ -149,6 +149,12 @@ public struct CreateResult: Decodable, Equatable, Sendable {
     public var identifier: String
     public var lastModified: Int64?
     public var isDeduplication: Bool?
+
+    public init(identifier: String, lastModified: Int64? = nil, isDeduplication: Bool? = nil) {
+        self.identifier = identifier
+        self.lastModified = lastModified
+        self.isDeduplication = isDeduplication
+    }
 }
 
 /// Rechte eines Tokens auf eine Collection, aus `apiPermissions` (z. B. "crud").

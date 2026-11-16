@@ -150,6 +150,7 @@ public struct SyncEngine: Sendable {
 
     /// Wendet Änderungen aus `history` an: neue und geänderte Einträge übernehmen,
     /// gelöschte (`isValid == false`) entfernen.
+    @discardableResult
     static func apply(history: [NightscoutTreatment], now: Date, state: inout AppState) -> Report {
         var report = Report()
         for treatment in history {
