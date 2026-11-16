@@ -34,13 +34,18 @@ final class MockTransport: HTTPTransport, @unchecked Sendable {
         routes.insert(Route(method: method, pathSuffix: pathSuffix, status: status, body: body), at: 0)
     }
 
-    func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+    /// Zeichnet die Anfrage auf und sucht die passende Route (synchron, wegen `NSLock`).
+    private func record(_ request: URLRequest) -> Route? {
         lock.lock()
+        defer { lock.unlock() }
         _requests.append(request)
         let path = request.url?.path ?? ""
         let method = request.httpMethod ?? "GET"
-        let route = routes.first { $0.method == method && path.hasSuffix($0.pathSuffix) }
-        lock.unlock()
+        return routes.first { $0.method == method && path.hasSuffix($0.pathSuffix) }
+    }
+
+    func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        let route = record(request)
 
         guard let route, let url = request.url else {
             let response = HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!
