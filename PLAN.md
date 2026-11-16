@@ -672,3 +672,7 @@ mit `force: true` ausführen. Das erneuert nur die Profile von DiabTimer, nicht 
 - **Test am Gerät** nach dem ersten TestFlight-Build: Mitteilungen und Aktionen, Widget-Button,
   iCloud-Abgleich zwischen zwei Geräten, Hintergrund-Abgleich.
 - **Englische Lokalisierung** (String Catalog).
+- **Zeitkritische Mitteilungen:** Die Capability „Time Sensitive Notifications“ lässt sich über die
+  App-Store-Connect-API nicht aktivieren (Workflow 2 schlug daran fehl). Sie ist deshalb vorerst
+  nicht im Profil, Warnung und „dringend“ kommen als normale Mitteilungen. Für den Browser-Build
+  reicht das; der laute Weg für „dringend“ kommt mit AlarmKit in Version 2.

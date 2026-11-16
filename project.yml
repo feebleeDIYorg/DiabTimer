@@ -54,7 +54,6 @@ targets:
         com.apple.security.application-groups:
           - $(APP_GROUP_IDENTIFIER)
         com.apple.developer.ubiquity-kvstore-identifier: $(TeamIdentifierPrefix)$(CFBundleIdentifier)
-        com.apple.developer.usernotifications.time-sensitive: true
     info:
       path: App/Info.plist
       properties:
