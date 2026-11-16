@@ -1,4 +1,4 @@
-# Plan: Wechsel-Timer für Nightscout (iOS)
+# Plan: DiabTimer für Nightscout (iOS)
 
 Eine iOS-App, die anhand der Careportal-Daten eines Nightscout-Servers anzeigt, wie lange
 Kanüle, Sensor, Insulin und Pumpenbatterie schon in Gebrauch sind. Sie trägt neue Wechsel in
@@ -13,11 +13,13 @@ nicht über Nightscout, sondern über **iCloud** zwischen den eigenen Geräten s
 
 | | |
 |---|---|
+| App-Name | **DiabTimer** |
 | Plattform | iPhone, **Mindestversion iOS 26** (iPhone 11 und neuer) |
 | Nightscout | **genau ein Server** |
 | Schlauch-Timer | **iCloud** (private CloudKit-Datenbank), nie Nightscout |
 | Verteilung | **TestFlight, nur interne Tester** |
-| CI / Upload | **GitHub Actions mit fastlane** |
+| CI / Upload | **GitHub Actions mit fastlane**, Aufbau wie im Loop-Fork `feebleeDIYorg/LoopWorkspace` |
+| Signierung | bestehendes Repo `feebleeDIYorg/Match-Secrets`, Organisations-Secrets |
 | Sprache / UI | Swift 6, SwiftUI im Liquid-Glass-Design |
 
 ---
@@ -114,7 +116,7 @@ nicht über Nightscout, sondern über **iCloud** zwischen den eigenen Geräten s
     "created_at": "2026-11-16T08:30:00.000Z",
     "date": 1794817800000,
     "utcOffset": 60,
-    "enteredBy": "Wechsel-Timer (iOS)",
+    "enteredBy": "DiabTimer (iOS)",
     "identifier": "<UUID von der App erzeugt>",
     "notes": "optional"
   }
@@ -295,7 +297,7 @@ der Alarm in der Ruhezeit auf deren Ende verschieben.
   (standardmäßig an).
 - `GetTimerStatusIntent(kind:)` gibt Alter und Status zurück, z. B. für eigene Automationen in
   Kurzbefehlen.
-- App Shortcuts mit deutschen und englischen Phrasen („Kanüle gewechselt in Wechsel-Timer“).
+- App Shortcuts mit deutschen und englischen Phrasen („Kanüle gewechselt in DiabTimer“).
 
 ---
 
@@ -328,78 +330,156 @@ der Alarm in der Ruhezeit auf deren Ende verschieben.
   CloudKit-Schema muss vor dem ersten TestFlight-Build und nach jeder Modelländerung im CloudKit
   Dashboard nach Production übertragen werden. Schemaänderungen nur hinzufügend, nie Felder
   löschen oder umbenennen.
-- **Capabilities:** App Groups, Keychain Sharing, iCloud (CloudKit, Container
-  `iCloud.<bundle-id>`), Push Notifications und Background Modes (Background fetch, Remote
-  notifications). Push wird nur für die stillen CloudKit-Benachrichtigungen gebraucht, es gibt
-  keinen eigenen Push-Server. AlarmKit braucht nur den Info.plist-Eintrag.
+- **Capabilities:** App Groups, iCloud (CloudKit), Push Notifications und Background Modes
+  (Background fetch, Remote notifications). Push wird nur für die stillen
+  CloudKit-Benachrichtigungen gebraucht, es gibt keinen eigenen Push-Server. Keychain Sharing
+  braucht keine Capability im Portal. AlarmKit braucht nur den Info.plist-Eintrag.
 - Testhinweise in TestFlight enthalten den Hinweis „kein Medizinprodukt“ und eine Anleitung zum
   Anlegen des `careportal`-Tokens.
 
-### CI: GitHub Actions mit fastlane und dem bestehenden `Match-Secrets`-Repo
+### Bezeichner nach dem Muster des Loop-Forks
+
+Wie in `feebleeDIYorg/LoopWorkspace` setzt sich jede Bundle-ID aus der Team-ID zusammen
+(`com.<TEAMID>.loopkit.Loop` → `com.<TEAMID>.DiabTimer`). Die Team-ID steht dadurch nirgends im
+öffentlichen Repo, sie kommt nur aus dem Secret `TEAMID`.
+
+| Bezeichner | Wert | Vorbild im Loop-Fork |
+|---|---|---|
+| App | `com.<TEAMID>.DiabTimer` | `com.<TEAMID>.loopkit.Loop` |
+| Widget-Extension | `com.<TEAMID>.DiabTimer.DiabTimerWidgetExtension` | `com.<TEAMID>.loopkit.Loop.LoopWidgetExtension` |
+| App Group | `group.com.<TEAMID>.DiabTimerGroup` | `group.com.<TEAMID>.loopkit.LoopGroup` |
+| iCloud-Container | `iCloud.com.<TEAMID>.DiabTimer` | (Loop hat keinen) |
+| Anzeigename | `DiabTimer` | `MAIN_APP_DISPLAY_NAME` |
+
+Im Xcode-Projekt werden die Werte wie bei Loop über xcconfig-Dateien gebildet:
+
+```
+// DiabTimerConfig.xcconfig  (wie LoopConfigOverride.xcconfig)
+MAIN_APP_BUNDLE_IDENTIFIER = com.$(DEVELOPMENT_TEAM).DiabTimer
+MAIN_APP_DISPLAY_NAME = DiabTimer
+APP_GROUP_IDENTIFIER = group.com.$(DEVELOPMENT_TEAM).DiabTimerGroup
+ICLOUD_CONTAINER_IDENTIFIER = iCloud.com.$(DEVELOPMENT_TEAM).DiabTimer
+
+// VersionOverride.xcconfig  (wie im Loop-Fork)
+MARKETING_VERSION = 0.1.0
+CURRENT_PROJECT_VERSION = 1
+```
+`DEVELOPMENT_TEAM` setzt die CI per `update_project_team` aus `TEAMID`. Für lokale Builds
+trägt man die eigene Team-ID in einer nicht eingecheckten `DiabTimerConfig.local.xcconfig` ein.
+
+### CI: Aufbau wie im Loop-Fork, mit dem bestehenden `Match-Secrets`-Repo
 
 Für die Signierung wird das **bestehende private Repo `feebleeDIYorg/Match-Secrets`**
 verwendet. Dort liegen bereits das Verteilungszertifikat und die App-Store-Profile für Loop,
-Trio, xDrip4iOS, LoopFollow und InsulinOCR (fastlane match 2.241.1, Typ `appstore`). Die neue
-App bekommt dort nur **zusätzliche Profile**, das vorhandene Zertifikat wird mitbenutzt.
+Trio, xDrip4iOS, LoopFollow und InsulinOCR (fastlane match 2.241.1, Typ `appstore`). DiabTimer
+bekommt dort nur **zusätzliche Profile**, das vorhandene Zertifikat wird mitbenutzt.
 
-Der Aufbau folgt dem Ablauf, den die Browser-Builds von Loop und Trio mit demselben Repo nutzen:
+Dateien und Workflows werden aus `feebleeDIYorg/LoopWorkspace` übernommen und auf DiabTimer
+angepasst. Weggelassen wird nur, was einen Fork betrifft (Abgleich mit dem Upstream-Repo).
 
-| Workflow | Auslöser | Aufgabe |
+| Datei | Herkunft im Loop-Fork | Anpassung |
 |---|---|---|
-| `ci.yml` | jeder Push und Pull Request | Build, Unit-Tests, UI-Tests im Simulator. Braucht keine Secrets |
-| `1-validate-secrets.yml` | manuell | Prüft, ob alle Secrets gesetzt sind und der API-Schlüssel sowie der Zugriff auf `Match-Secrets` funktionieren |
-| `2-add-identifiers.yml` | manuell, einmalig und nach Capability-Änderungen | Legt die Bundle-IDs mit ihren Capabilities im Developer-Portal an (App Groups, iCloud/CloudKit, Push) |
-| `3-create-certificates.yml` | manuell, einmalig und nach Capability-Änderungen | `match appstore` mit `readonly: false` für **nur die Bundle-IDs dieser App**: erzeugt die Profile und legt sie verschlüsselt in `Match-Secrets` ab |
-| `4-testflight.yml` | Tag `v*`, manuell und **monatlich per Zeitplan** | `match` mit `readonly: true`, Build-Nummer erhöhen, `gym` (Archiv), `pilot` (Upload an die interne Gruppe) |
+| `fastlane/Matchfile` | `fastlane/Matchfile` | unverändert: `git_url("https://github.com/#{GITHUB_REPOSITORY_OWNER}/Match-Secrets.git")`, `storage_mode("git")`, `type("appstore")` |
+| `fastlane/Fastfile` | `fastlane/Fastfile` | gleiche Lanes, Bundle-IDs und Targets von DiabTimer |
+| `Gemfile`, `Gemfile.lock` | gleich | gleiche fastlane-Version wie im Loop-Fork |
+| `.github/workflows/validate_secrets.yml` | **1. Validate Secrets** | Bundle-ID in `validate_secrets` |
+| `.github/workflows/add_identifiers.yml` | **2. Add Identifiers** | unverändert |
+| `.github/workflows/create_certs.yml` | **3. Create Certificates** | ohne Nuke-Job (siehe unten) |
+| `.github/workflows/build_diabtimer.yml` | **4. Build Loop Manual** | ohne Upstream-Sync, ohne Patches |
+| `.github/workflows/build_diabtimer_auto.yml` | **4. Build Loop Auto** | ohne Upstream-Sync, gleicher Zeitplan |
+| `.github/workflows/ci.yml` | (neu) | Build und Tests im Simulator bei Push und Pull Request, ohne Secrets |
+| `fastlane/testflight.md` | `fastlane/testflight.md` | Anleitung für DiabTimer (Schritte unten) |
 
-#### Secrets
-Dieselben Namen wie bei Loop, Trio und LoopFollow. Sind sie in `feebleeDIYorg` bereits als
-**Organisations-Secrets** angelegt, bekommt dieses Repo sie automatisch, sobald es freigegeben
-ist. Sonst werden sie in diesem Repo mit denselben Werten angelegt.
+#### Fastfile-Lanes
+| Lane | Aufgabe |
+|---|---|
+| `identifiers` | Legt über `Spaceship::ConnectAPI::BundleId` die Bundle-IDs an und ergänzt fehlende Capabilities (gleiche Hilfsfunktion `configure_bundle_id` wie im Loop-Fork) |
+| `certs` | `match(type: "appstore", force: false, app_identifier: [App, Widget])` mit `MATCH_READONLY=false`: erzeugt die Profile für DiabTimer in `Match-Secrets` |
+| `check_and_renew_certificates` | Prüft, ob das Verteilungszertifikat noch gültig ist, schreibt `new_certificate_needed.txt` |
+| `validate_secrets` | API-Schlüssel prüfen, `BundleId.find`, `match` lesend mit leerer `app_identifier`-Liste |
+| `build_diabtimer` | `setup_ci`, `update_project_team`, Build-Nummer = `latest_testflight_build_number + 1`, `match` (lesend), `update_code_signing_settings` für App und Widget, `gym` (`DiabTimer.ipa`) |
+| `release` | `upload_to_testflight` mit `skip_waiting_for_build_processing: true` |
+
+```ruby
+configure_bundle_id("DiabTimer", "com.#{TEAMID}.DiabTimer", [
+  Spaceship::ConnectAPI::BundleIdCapability::Type::APP_GROUPS,
+  Spaceship::ConnectAPI::BundleIdCapability::Type::ICLOUD,
+  Spaceship::ConnectAPI::BundleIdCapability::Type::PUSH_NOTIFICATIONS,
+  Spaceship::ConnectAPI::BundleIdCapability::Type::SIRIKIT
+])
+
+configure_bundle_id("DiabTimer Widget Extension",
+  "com.#{TEAMID}.DiabTimer.DiabTimerWidgetExtension", [
+  Spaceship::ConnectAPI::BundleIdCapability::Type::APP_GROUPS,
+  Spaceship::ConnectAPI::BundleIdCapability::Type::ICLOUD
+])
+
+match(
+  type: "appstore",
+  git_basic_authorization: Base64.strict_encode64("#{GITHUB_REPOSITORY_OWNER}:#{GH_PAT}"),
+  app_identifier: [
+    "com.#{TEAMID}.DiabTimer",
+    "com.#{TEAMID}.DiabTimer.DiabTimerWidgetExtension"
+  ]
+)
+```
+`SIRIKIT` nur, falls die Spike-Ergebnisse zu App Intents es verlangen; App Intents und App
+Shortcuts kommen in der Regel ohne aus.
+
+#### Workflows im Detail
+- **Runner und Xcode** wie im Loop-Fork: `ubuntu-26.04` für die Prüf-Jobs, `xcode-27` mit
+  `xcode-select` auf `Xcode_27.0.app` für alles mit fastlane. Gebaut wird mit dem SDK von
+  Xcode 27, die Mindestversion bleibt iOS 26.
+- **Übernommene Schritte im Build:** „Patch Match Tables“ (Tabellenausgabe von match
+  unterdrücken), `bundle install`, „Sync clock“ (`sntp`), `bundle exec fastlane build_diabtimer`,
+  `bundle exec fastlane release`, Upload von `DiabTimer.ipa` und Build-Log als Artefakt.
+- **`create_certs.yml`** wird wie im Loop-Fork von den Build-Workflows als `workflow_call`
+  vor jedem Build aufgerufen: `fastlane certs`, danach `check_and_renew_certificates`.
+- **Zeitplan** wie bei „Build Loop Auto“: Prüfung jeden Sonntag (`cron: "33 7 * * 0"`), gebaut
+  wird am **2. Sonntag im Monat** oder wenn es neue Commits auf `main` gibt. Gesteuert über
+  dieselben Repo-Variablen `SCHEDULED_BUILD` und `SCHEDULED_SYNC` (Standard: an). So läuft
+  ein TestFlight-Build nie nach 90 Tagen ab.
+- **Nuke-Job entfällt:** Im Loop-Fork kann `create_certs.yml` bei abgelaufenem Zertifikat
+  `match nuke` ausführen (`ENABLE_NUKE_CERTS`, `FORCE_NUKE_CERTS`). In DiabTimer wird dieser Job
+  nicht übernommen. Das Zertifikat wird zentral im Loop-Fork erneuert. Meldet
+  `check_and_renew_certificates` ein abgelaufenes Zertifikat, bricht der Build mit einem
+  Hinweis darauf ab.
+- Das Repo `management-timer` ist öffentlich: Workflows mit Secrets laufen nur auf Branches
+  dieses Repos und nie für Pull Requests aus Forks.
+
+#### Secrets und Variablen
+Die Secrets bestehen bereits als **Organisations-Secrets in `feebleeDIYorg`** und werden mit
+denselben Namen wie im Loop-Fork genutzt. Sind sie auf „ausgewählte Repositories“ beschränkt,
+muss `management-timer` dort einmalig hinzugefügt werden.
 
 | Secret | Inhalt |
 |---|---|
-| `TEAMID` | Apple-Team-ID (wird nicht ins öffentliche Repo geschrieben, Bundle-IDs werden im Workflow daraus zusammengesetzt, wo nötig) |
+| `TEAMID` | Apple-Team-ID |
 | `FASTLANE_KEY_ID` | ID des App-Store-Connect-API-Schlüssels |
 | `FASTLANE_ISSUER_ID` | Issuer-ID des API-Schlüssels |
 | `FASTLANE_KEY` | Inhalt der `.p8`-Datei |
-| `GH_PAT` | GitHub-Token mit Zugriff auf `Match-Secrets` (Lesen und Schreiben) |
+| `GH_PAT` | GitHub-Token mit den Rechten `repo` und `workflow` (Zugriff auf `Match-Secrets`) |
 | `MATCH_PASSWORD` | Passwort, mit dem `Match-Secrets` verschlüsselt ist |
 
-#### Fastfile (Kern)
-```ruby
-def match_settings(readonly:)
-  {
-    type: "appstore",
-    git_url: "https://github.com/#{ENV['GITHUB_REPOSITORY_OWNER']}/Match-Secrets",
-    git_basic_authorization: Base64.strict_encode64("#{ENV['GITHUB_REPOSITORY_OWNER']}:#{ENV['GH_PAT']}"),
-    app_identifier: [APP_ID, "#{APP_ID}.widget"],
-    team_id: ENV["TEAMID"],
-    api_key: api_key,          # app_store_connect_api_key aus FASTLANE_KEY_*
-    readonly: readonly
-  }
-end
-```
-- `app_identifier` enthält **nur** die Bundle-IDs dieser App. Dadurch ändert `match` keine
-  Profile der anderen Apps.
-- Nach einer Capability-Änderung (z. B. neuer iCloud-Container) wird `3-create-certificates`
-  mit `force: true` ausgeführt. Das erneuert nur die Profile dieser App, nicht das Zertifikat.
-- **Niemals `match nuke`** oder neue Verteilungszertifikate aus diesem Repo heraus erzeugen. Das
-  würde das gemeinsame Zertifikat widerrufen, und Loop, Trio, xDrip4iOS, LoopFollow und
-  InsulinOCR müssten alle neu signiert werden.
-- Läuft das gemeinsame Zertifikat ab, wird es zentral erneuert (wie bei den anderen Apps), danach
-  laufen hier `3-create-certificates` und `4-testflight` erneut.
+| Repo-Variable | Bedeutung |
+|---|---|
+| `SCHEDULED_BUILD` | `false` schaltet den monatlichen Build ab |
+| `SCHEDULED_SYNC` | `false` schaltet den Build bei neuen Commits ab |
 
-#### Weitere Details
-- Runner: macOS-Image von GitHub mit Xcode 26, feste Xcode-Version per `xcode-select`.
-- fastlane-Version per `Gemfile`/`Gemfile.lock` festgelegt, mindestens die Version, mit der
-  `Match-Secrets` zuletzt geschrieben wurde (2.241.1).
-- Build-Nummer: `latest_testflight_build_number + 1`, Versionsnummer aus dem Tag.
-- `pilot` mit `skip_waiting_for_build_processing`, Verteilung an die interne Gruppe, Changelog
-  aus den Commits seit dem letzten Tag.
-- Der monatliche Lauf sorgt dafür, dass nie alle Builds gleichzeitig ablaufen.
-- Das Repo `management-timer` ist öffentlich: Workflows mit Secrets laufen nur auf Branches
-  dieses Repos und nie für Pull Requests aus Forks.
+#### Einmalige Einrichtung (wie bei Loop)
+1. Workflow **1. Validate Secrets** ausführen.
+2. Workflow **2. Add Identifiers** ausführen.
+3. Im Apple-Developer-Portal die App Group `group.com.<TEAMID>.DiabTimerGroup` und den
+   iCloud-Container `iCloud.com.<TEAMID>.DiabTimer` anlegen und beiden Bundle-IDs zuordnen.
+   Das kann die API nicht, auch bei Loop ist die App Group ein manueller Schritt.
+4. In App Store Connect die App „DiabTimer“ mit der Bundle-ID `com.<TEAMID>.DiabTimer` anlegen
+   und eine interne Testgruppe einrichten.
+5. Workflow **3. Create Certificates** ausführen.
+6. Workflow **4. Build DiabTimer** ausführen.
+
+Nach späteren Änderungen an Capabilities: Schritte 2, 3 und 5 wiederholen. Damit die Profile
+die neue Capability enthalten, wird `certs` dann einmalig mit `force: true` ausgeführt. Das
+erneuert nur die Profile von DiabTimer, nicht das Zertifikat.
 
 ---
 
@@ -413,7 +493,7 @@ end
 | **3 – Eintragen** | Wechsel loggen, „Schlauch auch gewechselt“, Offline-Queue, Duplikatschutz, Korrigieren/Löschen, Rückgängig | Nightscout-Eintrag erscheint genau einmal. Schlauch-Eintrag erscheint auf dem zweiten Gerät, nie in Nightscout |
 | **4 – Erinnerungen** | AlarmKit-Spike, Benachrichtigungen, Alarme, Countdown-Live-Activity, Aktionen, Ruhezeiten, Hintergrund-Abgleich | Alarm klingelt im Stummmodus, „Jetzt gewechselt“ funktioniert aus Benachrichtigung, Alarm und Live Activity |
 | **5 – Widgets & Intents** | Lock- und Home-Screen-Widgets, CarPlay, Kontrollzentrum, Siri/Kurzbefehle mit Snippets | Widget und Control aktualisieren sich nach Eintrag aus jeder Quelle, auch von einem anderen Gerät |
-| **6 – TestFlight** | Lokalisierung, Barrierefreiheit, App-Icon, CloudKit-Schema in Production, `4-testflight.yml` | Build über TestFlight für interne Tester installierbar, Schlauch-Sync funktioniert im TestFlight-Build |
+| **6 – TestFlight** | Lokalisierung, Barrierefreiheit, App-Icon, CloudKit-Schema in Production, `build_diabtimer.yml` und `build_diabtimer_auto.yml` | Build über TestFlight für interne Tester installierbar, Schlauch-Sync funktioniert im TestFlight-Build |
 
 ---
 
@@ -467,13 +547,14 @@ end
 | Verteilung | TestFlight, nur interne Tester |
 | CI / Upload | GitHub Actions mit fastlane (`match`, `gym`, `pilot`) |
 | Signierung | bestehendes Repo `feebleeDIYorg/Match-Secrets`, gemeinsames Verteilungszertifikat, eigene Profile |
+| CI-Aufbau | Dateien, Lanes, Workflows und Zeitplan wie im Loop-Fork, ohne Upstream-Sync und ohne Nuke |
+| Bundle-IDs | Muster des Loop-Forks: `com.<TEAMID>.DiabTimer`, Team-ID nur aus dem Secret |
+| Secrets | bestehende Organisations-Secrets in `feebleeDIYorg` |
+| App-Name | DiabTimer |
 
 ## 14. Offene Punkte
 
-- **Bundle-ID:** Vorschlag nach dem Muster von InsulinOCR `ch.feebleediy.managementtimer` mit
-  `ch.feebleediy.managementtimer.widget`, App Group `group.ch.feebleediy.managementtimer` und
-  iCloud-Container `iCloud.ch.feebleediy.managementtimer`. Alternativ das Muster der
-  Loop-Forks mit der Team-ID im Namen.
-- **Secrets:** Sind `TEAMID`, `FASTLANE_*`, `GH_PAT` und `MATCH_PASSWORD` schon
-  Organisations-Secrets in `feebleeDIYorg`, oder müssen sie in diesem Repo angelegt werden?
-- **App-Name:** „Wechsel-Timer“ als Arbeitstitel, oder ein anderer Name für TestFlight?
+- **Organisations-Secrets freigeben:** Falls sie auf ausgewählte Repositories beschränkt sind,
+  `management-timer` dort hinzufügen.
+- **Repo-Name:** Das Repo heißt weiterhin `management-timer`. Umbenennen in `DiabTimer`
+  (GitHub leitet alte Links weiter), oder so lassen?
