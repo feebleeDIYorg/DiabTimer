@@ -653,12 +653,22 @@ mit `force: true` ausführen. Das erneuert nur die Profile von DiabTimer, nicht 
 | Bundle-IDs | Muster des Loop-Forks: `com.<TEAMID>.DiabTimer` |
 | Secrets | bestehende Organisations-Secrets, für alle Repos freigegeben |
 
-## 14. Offene Punkte
+## 14. Umsetzungsstand
 
-- **Repo umbenennen:** `feebleeDIYorg/management-timer` in `feebleeDIYorg/DiabTimer`
-  (GitHub → Settings → General → Repository name).
-- **Rolle und Token in Nightscout anlegen:** Rolle `diabtimer` mit den Rechten aus Abschnitt 3,
-  dazu ein Subject mit dieser Rolle. Nötig ab Phase 1.
-- **Ergebnisse aus Phase 0:** AlarmKit mit Countdown, iCloud-Speicher, Runner-Label.
+| Phase | Stand |
+|---|---|
+| 0 – Gerüst | Projekt (XcodeGen), Pakete, fastlane und alle Workflows angelegt. CI baut und testet bei jedem Push (Linux und iOS-Simulator). Die einmalige Einrichtung (Workflows 1–3, App Group, App Store Connect) und der erste TestFlight-Build stehen noch aus. Die Proben am Gerät (AlarmKit, iCloud, Widget) folgen mit dem ersten TestFlight-Build. |
+| 1 – Anbindung | umgesetzt: `NightscoutKit` (v3, JWT, Rechte, Suche, `history`, Eintragen, Ändern, Löschen) |
+| 2 – Timer | umgesetzt: `TimerCore`, Übersicht, Verlauf, Schwellen vom Server, Sensor-Laufzeit, Schlauch über iCloud |
+| 3 – Eintragen | umgesetzt: Kombi-Dialog, Schlauch-Regel, 15 s Rückgängig, Warteschlange, Wiederholung ohne Duplikat, Korrigieren und Löschen |
+| 4 – Benachrichtigungen | umgesetzt: Erinnerungsplan (Bündeln, Schlummern, Überfällig, Ruhezeit), Aktionen, Hintergrund-Abgleich, Nachfrage bei fremdem Kanülenwechsel |
+| 5 – Widgets | umgesetzt: Einzel-Widget (klein und Sperrbildschirm) mit Zwei-Tipp-Button, Übersicht (mittel). Lokalisierung Englisch steht noch aus |
+| 6, 7 | offen (Version 2 und 3) |
 
-Die Umsetzung beginnt mit Phase 0, sobald sie freigegeben ist.
+## 15. Offene Punkte
+
+- **Einmalige Einrichtung für TestFlight** (README, Abschnitt „Build über GitHub Actions“):
+  Workflows 1–2, App Group im Developer-Portal, App in App Store Connect, Workflows 3–4.
+- **Test am Gerät** nach dem ersten TestFlight-Build: Mitteilungen und Aktionen, Widget-Button,
+  iCloud-Abgleich zwischen zwei Geräten, Hintergrund-Abgleich.
+- **Englische Lokalisierung** (String Catalog).
