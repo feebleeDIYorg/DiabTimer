@@ -1,0 +1,105 @@
+# Aufbau übernommen aus feebleeDIYorg/LoopWorkspace (.github/workflows/build_loop.yml).
+# Abweichungen: kein Abgleich mit einem Upstream-Repo, keine Patches, Xcode-Projekt per
+# XcodeGen, nach dem Upload wird der Tag `testflight-latest` gesetzt.
+name: 4. Build DiabTimer
+run-name: Build DiabTimer (${{ github.ref_name }})
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  check_certs:
+    name: Check certificates
+    uses: ./.github/workflows/create_certs.yml
+    secrets: inherit
+
+  build:
+    name: Build
+    needs: [check_certs]
+    runs-on: xcode-27
+    permissions:
+      contents: write
+    steps:
+      - name: Select Xcode version
+        run: "sudo xcode-select --switch /Applications/Xcode_27.0.app/Contents/Developer"
+
+      - name: Checkout Repo for building
+        uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.GH_PAT }}
+          fetch-depth: 0
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      # Patch Fastlane Match to not print tables
+      - name: Patch Match Tables
+        run: |
+          TABLE_PRINTER_PATH=$(ruby -e 'puts Gem::Specification.find_by_name("fastlane").gem_dir')/match/lib/match/table_printer.rb
+          if [ -f "$TABLE_PRINTER_PATH" ]; then
+            sed -i "" "/puts(Terminal::Table.new(params))/d" "$TABLE_PRINTER_PATH"
+          else
+            echo "table_printer.rb not found"
+            exit 1
+          fi
+
+      - name: Install Project Dependencies
+        run: bundle install
+
+      # Sync the GitHub runner clock with the Windows time server (workaround as suggested in https://github.com/actions/runner/issues/2996)
+      - name: Sync clock
+        run: sudo sntp -sS time.windows.com
+
+      - name: Fastlane Build & Archive
+        run: bundle exec fastlane build_diabtimer
+        env:
+          TEAMID: ${{ secrets.TEAMID }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+          FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+          FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+
+      - name: Changelog since last TestFlight build
+        id: changelog
+        run: |
+          if git rev-parse -q --verify "refs/tags/testflight-latest" >/dev/null; then
+            LOG=$(git log --no-merges --pretty='- %s' testflight-latest..HEAD | head -30)
+          else
+            LOG=$(git log --no-merges --pretty='- %s' -15)
+          fi
+          {
+            echo "text<<EOF"
+            echo "${LOG:-Wartungs-Build ohne Änderungen}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Fastlane upload to TestFlight
+        run: bundle exec fastlane release
+        env:
+          TEAMID: ${{ secrets.TEAMID }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+          FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+          FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          TESTFLIGHT_CHANGELOG: ${{ steps.changelog.outputs.text }}
+
+      # Markiert den gebauten Commit; der automatische Build vergleicht `main` damit.
+      - name: Tag TestFlight build
+        run: |
+          git tag -f testflight-latest
+          git push -f origin refs/tags/testflight-latest
+
+      - name: Upload build log, IPA and Symbol artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: build-artifacts
+          path: |
+            artifacts
+            buildlog

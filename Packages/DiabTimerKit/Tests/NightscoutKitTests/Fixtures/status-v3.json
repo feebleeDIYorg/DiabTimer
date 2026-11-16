@@ -1,0 +1,1 @@
+{"status":200,"result":{"version":"15.0.9","apiVersion":"3.0.4-alpha","srvDate":1794817800000,"storage":{"storage":"mongodb","version":"6.0.0"},"apiPermissions":{"treatments":"crud","devicestatus":"r"}}}

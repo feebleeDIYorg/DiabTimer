@@ -1,0 +1,208 @@
+# Fastfile für DiabTimer.
+#
+# Aufbau übernommen aus feebleeDIYorg/LoopWorkspace (fastlane/Fastfile), angepasst:
+# - Bundle-IDs und Targets von DiabTimer
+# - keine Lane `nuke_certs`: Das Verteilungszertifikat in Match-Secrets wird von mehreren
+#   Apps geteilt und nur zentral im Loop-Fork erneuert.
+# - `certs` bricht ab, wenn kein gültiges Zertifikat vorhanden ist, statt ein neues anzulegen.
+# - Das Xcode-Projekt wird vorher mit XcodeGen erzeugt (siehe Workflows).
+
+default_platform(:ios)
+
+TEAMID = ENV["TEAMID"]
+GH_PAT = ENV["GH_PAT"]
+GITHUB_WORKSPACE = ENV["GITHUB_WORKSPACE"] || File.expand_path("..", __dir__)
+GITHUB_REPOSITORY_OWNER = ENV["GITHUB_REPOSITORY_OWNER"]
+FASTLANE_KEY_ID = ENV["FASTLANE_KEY_ID"]
+FASTLANE_ISSUER_ID = ENV["FASTLANE_ISSUER_ID"]
+FASTLANE_KEY = ENV["FASTLANE_KEY"]
+ENV["FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT"] = "120"
+
+PROJECT_PATH = "#{GITHUB_WORKSPACE}/DiabTimer.xcodeproj"
+APP_ID = "com.#{TEAMID}.DiabTimer"
+WIDGET_ID = "#{APP_ID}.DiabTimerWidgetExtension"
+APP_IDENTIFIERS = [APP_ID, WIDGET_ID]
+
+platform :ios do
+  def api_key
+    app_store_connect_api_key(
+      key_id: "#{FASTLANE_KEY_ID}",
+      issuer_id: "#{FASTLANE_ISSUER_ID}",
+      key_content: "#{FASTLANE_KEY}"
+    )
+  end
+
+  def match_auth
+    Base64.strict_encode64("#{GITHUB_REPOSITORY_OWNER}:#{GH_PAT}")
+  end
+
+  # Gibt es ein gültiges Verteilungszertifikat im Developer-Portal?
+  def valid_distribution_certificate?
+    certificates = Spaceship::ConnectAPI::Certificate.all
+    distribution = certificates.select { |cert| cert.certificate_type == "DISTRIBUTION" }
+    distribution.any? { |cert| Time.parse(cert.expiration_date) > Time.now }
+  end
+
+  desc "Build DiabTimer"
+  lane :build_diabtimer do
+    setup_ci if ENV['CI']
+
+    update_project_team(
+      path: PROJECT_PATH,
+      teamid: "#{TEAMID}"
+    )
+
+    key = api_key
+
+    previous_build_number = latest_testflight_build_number(
+      app_identifier: APP_ID,
+      api_key: key,
+      initial_build_number: 0
+    )
+    current_build_number = previous_build_number + 1
+
+    match(
+      type: "appstore",
+      readonly: true,
+      git_basic_authorization: match_auth,
+      app_identifier: APP_IDENTIFIERS
+    )
+
+    mapping = Actions.lane_context[
+      SharedValues::MATCH_PROVISIONING_PROFILE_MAPPING
+    ]
+
+    update_code_signing_settings(
+      path: PROJECT_PATH,
+      use_automatic_signing: false,
+      profile_name: mapping[APP_ID],
+      code_sign_identity: "iPhone Distribution",
+      targets: ["DiabTimer"]
+    )
+
+    update_code_signing_settings(
+      path: PROJECT_PATH,
+      use_automatic_signing: false,
+      profile_name: mapping[WIDGET_ID],
+      code_sign_identity: "iPhone Distribution",
+      targets: ["DiabTimerWidgetExtension"]
+    )
+
+    gym(
+      project: PROJECT_PATH,
+      export_method: "app-store",
+      scheme: "DiabTimer",
+      output_name: "DiabTimer.ipa",
+      configuration: "Release",
+      destination: 'generic/platform=iOS',
+      buildlog_path: 'buildlog',
+      xcargs: "CURRENT_PROJECT_VERSION=#{current_build_number}"
+    )
+
+    copy_artifacts(
+      target_path: "artifacts",
+      artifacts: ["*.mobileprovision", "*.ipa", "*.dSYM.zip"]
+    )
+  end
+
+  desc "Push to TestFlight"
+  lane :release do
+    upload_to_testflight(
+      api_key: api_key,
+      skip_submission: false,
+      ipa: "DiabTimer.ipa",
+      skip_waiting_for_build_processing: true,
+      changelog: ENV["TESTFLIGHT_CHANGELOG"]
+    )
+  end
+
+  desc "Provision Identifiers"
+  lane :identifiers do
+    setup_ci if ENV['CI']
+    ENV["MATCH_READONLY"] = false.to_s
+
+    api_key
+
+    def configure_bundle_id(name, identifier, capabilities)
+      bundle_id = Spaceship::ConnectAPI::BundleId.find(identifier) || Spaceship::ConnectAPI::BundleId.create(
+        name:       name,
+        identifier: identifier,
+        platform:   "IOS"
+      )
+      existing = bundle_id.get_capabilities.map(&:capability_type)
+      capabilities.reject { |c| existing.include?(c) }.each do |cap|
+        if cap == Spaceship::ConnectAPI::BundleIdCapability::Type::ICLOUD
+          bundle_id.create_capability(cap, settings: [
+            { key: "ICLOUD_VERSION", options: [{ key: "XCODE_6", enabled: true }] }
+          ])
+        else
+          bundle_id.create_capability(cap)
+        end
+      end
+    end
+
+    configure_bundle_id("DiabTimer", APP_ID, [
+      Spaceship::ConnectAPI::BundleIdCapability::Type::APP_GROUPS,
+      Spaceship::ConnectAPI::BundleIdCapability::Type::ICLOUD,
+      Spaceship::ConnectAPI::BundleIdCapability::Type::USERNOTIFICATIONS_TIMESENSITIVE
+    ])
+
+    configure_bundle_id("DiabTimer Widget Extension", WIDGET_ID, [
+      Spaceship::ConnectAPI::BundleIdCapability::Type::APP_GROUPS
+    ])
+  end
+
+  desc "Provision Certificates (nur Profile von DiabTimer, nie ein neues Zertifikat)"
+  lane :certs do
+    setup_ci if ENV['CI']
+    ENV["MATCH_READONLY"] = false.to_s
+
+    api_key
+
+    unless valid_distribution_certificate?
+      UI.user_error!("Kein gültiges Verteilungszertifikat gefunden. Bitte zentral über den Loop-Fork erneuern (3. Create Certificates mit ENABLE_NUKE_CERTS) und danach diesen Workflow erneut ausführen.")
+    end
+
+    match(
+      type: "appstore",
+      force: ENV["FORCE_PROFILES"] == "true",
+      verbose: true,
+      git_basic_authorization: match_auth,
+      app_identifier: APP_IDENTIFIERS
+    )
+  end
+
+  desc "Validate Secrets"
+  lane :validate_secrets do
+    setup_ci if ENV['CI']
+    ENV["MATCH_READONLY"] = true.to_s
+
+    api_key
+
+    Spaceship::ConnectAPI::BundleId.find(APP_ID)
+
+    match(
+      type: "appstore",
+      git_basic_authorization: match_auth,
+      app_identifier: [],
+    )
+  end
+
+  desc "Check Certificates"
+  lane :check_and_renew_certificates do
+    setup_ci if ENV['CI']
+
+    api_key
+
+    new_certificate_needed = !valid_distribution_certificate?
+    if new_certificate_needed
+      puts "Kein gültiges Verteilungszertifikat gefunden."
+    else
+      puts "Verteilungszertifikat ist gültig."
+    end
+
+    file_path = File.expand_path('new_certificate_needed.txt')
+    File.write(file_path, new_certificate_needed ? 'true' : 'false')
+    puts "Certificate creation or renewal needed: #{File.read(file_path)}"
+  end
+end

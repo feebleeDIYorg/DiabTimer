@@ -1,0 +1,26 @@
+# Xcode-Projekt wird mit XcodeGen aus project.yml erzeugt
+*.xcodeproj
+*.xcworkspace
+!Packages/**/*.xcworkspace
+xcuserdata/
+DerivedData/
+build/
+.build/
+.swiftpm/
+
+# Lokale Team-ID
+Config/DiabTimerConfig.local.xcconfig
+
+# fastlane
+fastlane/report.xml
+fastlane/README.md
+fastlane/new_certificate_needed.txt
+artifacts/
+buildlog/
+*.ipa
+*.dSYM.zip
+*.mobileprovision
+vendor/bundle/
+.bundle/
+
+.DS_Store

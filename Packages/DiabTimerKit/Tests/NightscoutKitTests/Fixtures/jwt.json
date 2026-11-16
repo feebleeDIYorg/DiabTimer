@@ -1,0 +1,1 @@
+{"token":"eyJ.test.jwt","sub":"diabtimer","permissionGroups":[["api:treatments:read"]],"iat":1794800000,"exp":1794828800}

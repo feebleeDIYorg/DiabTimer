@@ -1,0 +1,6 @@
+{"status":200,"result":[
+ {"identifier":"h-1","eventType":"Sensor Start","date":1794700000000,"app":"xDrip4iOS","srvModified":1794817000000,"isValid":true},
+ {"identifier":"h-2","eventType":"Site Change","date":1794810000000,"app":"AAPS","srvModified":1794817100000,"isValid":false},
+ {"identifier":"h-3","eventType":"Meal Bolus","date":1794810000000,"carbs":40,"srvModified":1794817200000},
+ {"identifier":"h-4","eventType":"Insulin Change","date":"1794815000000","app":"DiabTimer","srvModified":"1794817300000"}
+]}

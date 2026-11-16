@@ -1,0 +1,18 @@
+//
+//  DiabTimerConfig.xcconfig
+//  Aufbau wie LoopConfigOverride.xcconfig im Loop-Fork (feebleeDIYorg/LoopWorkspace).
+//
+//  Die Team-ID steht nicht im Repo. In der CI setzt fastlane `DEVELOPMENT_TEAM`
+//  (update_project_team, aus dem Secret TEAMID). Für lokale Builds die eigene Team-ID in
+//  Config/DiabTimerConfig.local.xcconfig eintragen (wird nicht eingecheckt):
+//
+//      DEVELOPMENT_TEAM = ABCDE12345
+//
+
+#include "VersionOverride.xcconfig"
+#include? "DiabTimerConfig.local.xcconfig"
+
+MAIN_APP_BUNDLE_IDENTIFIER = com.$(DEVELOPMENT_TEAM).DiabTimer
+MAIN_APP_DISPLAY_NAME = DiabTimer
+APP_GROUP_IDENTIFIER = group.com.$(DEVELOPMENT_TEAM).DiabTimerGroup
+BACKGROUND_REFRESH_IDENTIFIER = $(MAIN_APP_BUNDLE_IDENTIFIER).refresh
