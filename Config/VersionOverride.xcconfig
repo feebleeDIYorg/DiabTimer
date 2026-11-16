@@ -1,0 +1,9 @@
+//
+//  VersionOverride.xcconfig
+//  Wie im Loop-Fork: Versionsnummer an einer Stelle.
+//  Die Build-Nummer (CURRENT_PROJECT_VERSION) setzt die CI beim Upload auf
+//  „letzte TestFlight-Build-Nummer + 1“.
+//
+
+MARKETING_VERSION = 0.1.0
+CURRENT_PROJECT_VERSION = 1

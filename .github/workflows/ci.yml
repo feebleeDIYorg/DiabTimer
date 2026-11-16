@@ -1,0 +1,106 @@
+# Build und Tests bei jedem Push und Pull Request. Braucht keine Secrets.
+name: CI
+run-name: CI (${{ github.ref_name }})
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package-tests-linux:
+    name: Paket-Tests (Linux)
+    runs-on: ubuntu-24.04
+    container: swift:6.2-noble
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v5
+
+      - name: Swift Test
+        run: swift test --package-path Packages/DiabTimerKit
+
+  app:
+    name: App bauen und testen (iOS-Simulator)
+    runs-on: xcode-27
+    steps:
+      - name: Select Xcode version
+        run: "sudo xcode-select --switch /Applications/Xcode_27.0.app/Contents/Developer"
+
+      - name: Checkout Repo
+        uses: actions/checkout@v5
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Paket-Tests (macOS)
+        run: swift test --package-path Packages/DiabTimerKit
+
+      - name: Pick simulator
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)["devices"]
+          for runtime, devices in sorted(data.items(), reverse=True):
+              if "iOS" not in runtime:
+                  continue
+              for device in devices:
+                  if device["name"].startswith("iPhone"):
+                      print(device["udid"]); sys.exit(0)
+          ')
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          echo "Simulator: $UDID"
+
+      - name: Boot simulator
+        run: |
+          xcrun simctl boot "${{ steps.sim.outputs.udid }}" || true
+          xcrun simctl bootstatus "${{ steps.sim.outputs.udid }}" -b
+
+      - name: Build and UI tests
+        run: |
+          set +e
+          xcodebuild test \
+            -project DiabTimer.xcodeproj \
+            -scheme DiabTimer \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -resultBundlePath TestResults.xcresult \
+            -parallel-testing-enabled NO \
+            -retry-tests-on-failure \
+            -test-iterations 2 \
+            DEVELOPMENT_TEAM=CITEAM0000 \
+            CODE_SIGNING_ALLOWED=NO \
+            > xcodebuild.log 2>&1
+          STATUS=$?
+          grep -E "error:|[Tt]est [Cc]ase .*(passed|failed)|\*\* (BUILD|TEST)" xcodebuild.log | tail -300
+          if [ $STATUS -ne 0 ]; then
+            echo "::group::Ende von xcodebuild.log"
+            tail -120 xcodebuild.log
+            echo "::endgroup::"
+            xcrun xcresulttool get test-results tests --path TestResults.xcresult 2>/dev/null | python3 -c '
+          import json, sys
+          def walk(node, depth=0):
+              if node.get("result") not in (None, "Passed") or node.get("nodeType") == "Failure Message":
+                  print("  " * depth + str(node.get("nodeType")) + ": " + str(node.get("name")) + " -> " + str(node.get("result")))
+              for child in node.get("children", []):
+                  walk(child, depth + 1)
+          for node in json.load(sys.stdin).get("testNodes", []):
+              walk(node)
+          ' || true
+          fi
+          exit $STATUS
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-results
+          path: |
+            TestResults.xcresult
+            xcodebuild.log

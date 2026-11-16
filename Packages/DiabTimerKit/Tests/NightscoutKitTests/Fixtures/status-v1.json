@@ -1,0 +1,1 @@
+{"status":"ok","name":"nightscout","version":"15.0.9","settings":{"units":"mg/dl"},"extendedSettings":{"cage":{"info":40,"warn":"46","urgent":70,"display":"hours","enableAlerts":true},"sage":{"info":216,"warn":234,"urgent":238},"iage":{"enableAlerts":false},"bage":{"info":"abc","warn":10,"urgent":5}}}
