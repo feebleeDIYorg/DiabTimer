@@ -444,13 +444,13 @@ Shortcuts kommen in der Regel ohne aus.
   nicht übernommen. Das Zertifikat wird zentral im Loop-Fork erneuert. Meldet
   `check_and_renew_certificates` ein abgelaufenes Zertifikat, bricht der Build mit einem
   Hinweis darauf ab.
-- Das Repo `management-timer` ist öffentlich: Workflows mit Secrets laufen nur auf Branches
+- Das Repo `feebleeDIYorg/DiabTimer` ist öffentlich: Workflows mit Secrets laufen nur auf Branches
   dieses Repos und nie für Pull Requests aus Forks.
 
 #### Secrets und Variablen
 Die Secrets bestehen bereits als **Organisations-Secrets in `feebleeDIYorg`** und werden mit
-denselben Namen wie im Loop-Fork genutzt. Sind sie auf „ausgewählte Repositories“ beschränkt,
-muss `management-timer` dort einmalig hinzugefügt werden.
+denselben Namen wie im Loop-Fork genutzt. Sie sind für alle Repositories der Organisation
+freigegeben, eine Einrichtung in diesem Repo ist nicht nötig.
 
 | Secret | Inhalt |
 |---|---|
@@ -549,12 +549,14 @@ erneuert nur die Profile von DiabTimer, nicht das Zertifikat.
 | Signierung | bestehendes Repo `feebleeDIYorg/Match-Secrets`, gemeinsames Verteilungszertifikat, eigene Profile |
 | CI-Aufbau | Dateien, Lanes, Workflows und Zeitplan wie im Loop-Fork, ohne Upstream-Sync und ohne Nuke |
 | Bundle-IDs | Muster des Loop-Forks: `com.<TEAMID>.DiabTimer`, Team-ID nur aus dem Secret |
-| Secrets | bestehende Organisations-Secrets in `feebleeDIYorg` |
+| Secrets | bestehende Organisations-Secrets in `feebleeDIYorg`, für alle Repos freigegeben |
+| Repository | `feebleeDIYorg/DiabTimer` (bisher `management-timer`) |
 | App-Name | DiabTimer |
 
 ## 14. Offene Punkte
 
-- **Organisations-Secrets freigeben:** Falls sie auf ausgewählte Repositories beschränkt sind,
-  `management-timer` dort hinzufügen.
-- **Repo-Name:** Das Repo heißt weiterhin `management-timer`. Umbenennen in `DiabTimer`
-  (GitHub leitet alte Links weiter), oder so lassen?
+- **Repo umbenennen:** `feebleeDIYorg/management-timer` wird in `feebleeDIYorg/DiabTimer`
+  umbenannt (GitHub → Settings → General → Repository name). GitHub leitet alte Links und
+  Git-Remotes weiter. Danach lokale Remotes auf die neue URL umstellen.
+
+Sonst sind keine Punkte offen. Die Umsetzung beginnt mit Phase 0, sobald sie freigegeben ist.
