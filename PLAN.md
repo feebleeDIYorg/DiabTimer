@@ -3,7 +3,8 @@
 Eine iOS-App, die anhand der Careportal-Daten eines Nightscout-Servers anzeigt, wie lange
 Kanüle, Sensor, Insulin und Pumpenbatterie schon in Gebrauch sind. Sie trägt neue Wechsel in
 Nightscout ein und erinnert rechtzeitig per Widget, Benachrichtigung und Alarm. Zusätzlich gibt
-es einen rein lokalen Timer für den Schlauch, für den Nightscout keinen Ereignistyp kennt.
+es einen Timer für den Schlauch. Für ihn kennt Nightscout keinen Ereignistyp, deshalb wird er
+nicht über Nightscout, sondern über **iCloud** zwischen den eigenen Geräten synchronisiert.
 
 > **Hinweis:** Die App ist kein Medizinprodukt. Sie berechnet keine Dosen und gibt keine
 > BZ-Alarme aus, sie verwaltet nur Wechsel-Erinnerungen.
@@ -14,7 +15,9 @@ es einen rein lokalen Timer für den Schlauch, für den Nightscout keinen Ereign
 |---|---|
 | Plattform | iPhone, **Mindestversion iOS 26** (iPhone 11 und neuer) |
 | Nightscout | **genau ein Server** |
-| Verteilung | **TestFlight** (kein App Store) |
+| Schlauch-Timer | **iCloud** (private CloudKit-Datenbank), nie Nightscout |
+| Verteilung | **TestFlight, nur interne Tester** |
+| CI / Upload | **GitHub Actions mit fastlane** |
 | Sprache / UI | Swift 6, SwiftUI im Liquid-Glass-Design |
 
 ---
@@ -24,12 +27,12 @@ es einen rein lokalen Timer für den Schlauch, für den Nightscout keinen Ereign
 ### Im Umfang (MVP)
 | Bereich | Inhalt |
 |---|---|
-| **Timer** | Kanüle (CAGE), Sensor (SAGE), Insulin (IAGE), Pumpenbatterie (BAGE) aus Nightscout, dazu **Schlauch (nur lokal)**. Jeder mit Ampelstatus (ok / Info / Warnung / dringend) und Zeit bis zum nächsten Wechsel |
-| **Eintragen** | Ein Tipp auf „Kanüle gewechselt“ usw., optional mit abweichendem Zeitpunkt und Notiz. Eigene Einträge lassen sich korrigieren oder löschen |
+| **Timer** | Kanüle (CAGE), Sensor (SAGE), Insulin (IAGE), Pumpenbatterie (BAGE) aus Nightscout, dazu **Schlauch (über iCloud)**. Jeder mit Ampelstatus (ok / Info / Warnung / dringend) und Zeit bis zum nächsten Wechsel |
+| **Eintragen** | Ein Tipp auf „Kanüle gewechselt“ usw., optional mit abweichendem Zeitpunkt und Notiz. Beim Kanülenwechsel ist „Schlauch auch gewechselt“ standardmäßig an. Eigene Einträge lassen sich korrigieren oder löschen |
 | **Verlauf** | Liste der letzten Wechsel je Typ, durchschnittliche Tragedauer |
 | **Benachrichtigungen** | Lokal geplante Erinnerungen für Info und Warnung, mit Aktionen direkt aus der Benachrichtigung |
 | **Alarme (AlarmKit)** | Stufe „dringend“ als echter Alarm, der auch im Stummmodus klingelt |
-| **Countdown (Live Activity)** | Countdown im Dynamic Island und auf dem Sperrbildschirm, bevor ein Wechsel dringend wird |
+| **Countdown (Live Activity)** | Countdown im Dynamic Island und auf dem Sperrbildschirm, 2 Stunden bevor ein Wechsel dringend wird |
 | **Widgets** | Home- und Lock-Screen-Widgets, auch in **CarPlay**, mit interaktivem Button „Gewechselt“ |
 | **Kontrollzentrum** | Steuerelement „Gewechselt“ pro Timer |
 | **Siri / Kurzbefehle / Spotlight** | App Intents mit **interaktiver Bestätigung** („Kanüle jetzt als gewechselt eintragen?“) |
@@ -37,9 +40,10 @@ es einen rein lokalen Timer für den Schlauch, für den Nightscout keinen Ereign
 ### Bewusst nicht im Umfang
 - BZ-Werte, Bolus, KH, Basalraten. Dafür gibt es xDrip4iOS, Loop, Trio usw.
 - Mehrere Nightscout-Server
-- Synchronisierung des Schlauch-Timers (weder Nightscout noch iCloud)
+- Upload des Schlauch-Timers nach Nightscout
+- Synchronisierung der Nightscout-Daten über iCloud (Nightscout ist dafür die Quelle)
 - Eigenes Push-Backend
-- Android, App Store
+- Android, App Store, externe TestFlight-Tester
 
 ### Später denkbar
 - Apple-Watch-Komplikation
@@ -55,7 +59,7 @@ es einen rein lokalen Timer für den Schlauch, für den Nightscout keinen Ereign
 | Sensor (SAGE) | Nightscout | jüngstes von `Sensor Start` und `Sensor Change` | 144 h / 164 h / 166 h |
 | Insulin (IAGE) | Nightscout | `Insulin Change` | 44 h / 48 h / 72 h |
 | Batterie (BAGE) | Nightscout | `Pump Battery Change` | 312 h / 336 h / 360 h |
-| **Schlauch** | **nur lokal** | lokales Ereignis `tubingChange` | einstellbar, Vorschlag 120 h / 144 h / 168 h (siehe offene Punkte) |
+| **Schlauch** | **iCloud** | Ereignis `tubingChange` (nur in der App) | **120 h / 144 h / 168 h** (5 / 6 / 7 Tage) |
 
 ### Gemeinsame Regeln
 - Die Schwellen der Nightscout-Timer werden beim Einrichten aus `/api/v1/status.json`
@@ -71,20 +75,24 @@ es einen rein lokalen Timer für den Schlauch, für den Nightscout keinen Ereign
   App, Widgets, Benachrichtigungen, Alarme und Live Activity nutzen sie gemeinsam. Sie lässt sich
   vollständig per Unit-Test prüfen.
 
-### Schlauch-Timer (nur lokal)
-- Nightscout hat keinen Ereignistyp für den Schlauchwechsel. Der Timer existiert deshalb **nur
-  auf dem Gerät**. Es gibt keinen Upload nach Nightscout und keine iCloud-Synchronisierung.
-- Die Wechsel werden in der lokalen Datenbank mit `source = .local` gespeichert. Die Offline-Queue
-  nimmt sie nie auf, der Nightscout-Abgleich ignoriert sie.
-- Ein Schlauchwechsel wird meist zusammen mit einem Kanülenwechsel gemacht. Beim Eintragen von
-  „Kanüle gewechselt“ gibt es deshalb einen Schalter **„Schlauch auch gewechselt“**. Der
-  Standardwert ist einstellbar: immer an, immer aus oder „an, wenn der Schlauch die Info-Schwelle
-  erreicht hat“.
+### Schlauch-Timer (über iCloud)
+- Nightscout hat keinen Ereignistyp für den Schlauchwechsel. Die Wechsel werden deshalb in der
+  **privaten CloudKit-Datenbank** des eigenen iCloud-Kontos gespeichert und zwischen den Geräten
+  mit derselben Apple-ID synchronisiert. Nach Nightscout gehen sie nie.
+- Gespeichert wird jeder Wechsel als eigener Datensatz mit fester UUID (nur hinzufügen,
+  korrigieren, löschen). Echte Konflikte sind damit selten. Wird derselbe Datensatz auf zwei
+  Geräten geändert, gewinnt die zuletzt gespeicherte Änderung.
+- **Ohne iCloud** (abgemeldet oder iCloud für die App aus) funktioniert der Timer weiter, nur
+  ohne Synchronisierung. Die Einstellungen zeigen den iCloud-Status an. Sobald iCloud wieder
+  verfügbar ist, werden die Daten nachgeliefert.
+- Nach einer Neuinstallation oder auf einem neuen Gerät kommen die Daten aus iCloud zurück. Nur
+  wenn dort nichts liegt, fragt die Einrichtung nach dem letzten Schlauchwechsel.
+- **„Schlauch auch gewechselt“:** Beim Eintragen von „Kanüle gewechselt“ (in der App, im Widget,
+  im Kontrollzentrum, per Siri und aus Benachrichtigungen) ist dieser Schalter **standardmäßig
+  an**. Er lässt sich pro Eintrag ausschalten und in den Einstellungen dauerhaft auf „aus“
+  stellen.
 - Alles andere funktioniert wie bei den Nightscout-Timern: Widget, Benachrichtigung, Alarm,
   Countdown, Kontrollzentrum, Siri.
-- **Datenverlust:** Die Daten stecken nur im normalen Geräte-Backup (iCloud- oder
-  Computer-Backup). Ein Neuinstallieren der App setzt den Schlauch-Timer zurück. Die
-  Einrichtung fragt dann nach dem letzten Wechsel, die Einstellungen weisen darauf hin.
 
 ---
 
@@ -123,9 +131,10 @@ es einen rein lokalen Timer für den Schlauch, für den Nightscout keinen Ereign
 - **Fallback:** `API_SECRET` (als SHA1-Hash im Header `api-secret`) mit einem deutlichen
   Hinweis, dass dieses Geheimnis vollen Schreibzugriff gibt.
 - Token, Secret und JWT werden im **Keychain** gespeichert, mit einer Access Group, damit
-  Widget- und Intent-Code sie mitnutzen können.
+  Widget- und Intent-Code sie mitnutzen können. Sie werden nicht über die iCloud-Schlüsselbund-
+  Synchronisierung geteilt, auf jedem Gerät wird der Server einmal eingerichtet.
 - Es gibt genau eine Server-Konfiguration. Ein Serverwechsel in den Einstellungen löscht den
-  Nightscout-Cache, die lokalen Schlauch-Daten bleiben erhalten.
+  Nightscout-Cache, die Schlauch-Daten in iCloud bleiben erhalten.
 
 ---
 
@@ -138,8 +147,8 @@ es einen rein lokalen Timer für den Schlauch, für den Nightscout keinen Ereign
 │  ChangeStore (Observable) ── Offline-Queue (nur Nightscout)  │
 │        ↕                   ↕                                 │
 │  NightscoutClient       SwiftData (App-Group-Container)      │
-│                         ├─ Nightscout-Cache                  │
-│                         └─ lokale Ereignisse (Schlauch)      │
+│                         ├─ Store „nightscout“ (Cache, lokal) │
+│                         └─ Store „tubing“ (CloudKit-Sync) ───┼──► iCloud (privat)
 └───────┬───────────────────┬──────────────────────────────────┘
         │                   ├──► Widget-Extension (Widgets, Controls, Live Activity)
    Nightscout               ├──► ReminderScheduler
@@ -152,27 +161,38 @@ es einen rein lokalen Timer für den Schlauch, für den Nightscout keinen Ereign
 | Modul | Aufgabe | Abhängigkeiten |
 |---|---|---|
 | `NightscoutKit` | API-Client (v1/v3), Auth, DTOs, Fähigkeitserkennung | Foundation |
-| `TimerCore` | Timer-Typen (Nightscout und lokal), Schwellen, Statusberechnung, Erinnerungsplan | Foundation |
-| `Persistence` | SwiftData-Modelle, Offline-Queue, App-Group-Zugriff | TimerCore |
+| `TimerCore` | Timer-Typen, Schwellen, Statusberechnung, Erinnerungsplan | Foundation |
+| `Persistence` | SwiftData-Modelle, zwei Stores (lokal und CloudKit), Offline-Queue, App-Group-Zugriff | TimerCore |
 | `ChangeIntents` | `LogChangeIntent`, `UndoChangeIntent`, `RefreshIntent`, Snippet-Ansichten | alle |
 
 ### Datenmodell (Kern)
 ```swift
 enum TimerKind: String, Codable { case cannula, sensor, insulin, battery, tubing }
 
-enum TimerSource { case nightscout(eventTypes: [String]), local }
+enum TimerSource { case nightscout(eventTypes: [String]), iCloud }
 
-@Model final class ChangeEvent {
-    var id: UUID            // = Nightscout-identifier bei source == .nightscout
+// Store „nightscout“: nur lokal, wird aus Nightscout neu aufgebaut
+@Model final class NightscoutChange {
+    @Attribute(.unique) var identifier: String
     var kind: TimerKind
-    var date: Date          // UTC
+    var date: Date            // UTC
     var note: String?
-    var origin: Origin      // .nightscout, .local
     var enteredByThisApp: Bool
-    var syncState: SyncState // .synced, .pending, .localOnly
+    var syncState: SyncState  // .synced, .pending
+}
+
+// Store „tubing“: über CloudKit synchronisiert
+@Model final class TubingChange {
+    var id: UUID = UUID()     // CloudKit: keine .unique-Attribute, Standardwerte nötig
+    var date: Date = Date.now // UTC
+    var note: String?
+    var deviceName: String?
 }
 ```
-`TimerKind.tubing` hat immer `TimerSource.local` und `syncState == .localOnly`.
+- Die Trennung in zwei Stores (`ModelConfiguration` mit `cloudKitDatabase: .private(...)` bzw.
+  `.none`) hält die CloudKit-Regeln vom Nightscout-Cache fern. Für CloudKit gilt: keine
+  `.unique`-Attribute, alle Eigenschaften optional oder mit Standardwert, Beziehungen optional.
+- `TubingChange` wird nie in die Offline-Queue aufgenommen.
 
 ### Targets
 - **App** (iOS 26)
@@ -180,30 +200,42 @@ enum TimerSource { case nightscout(eventTypes: [String]), local }
 - **Unit-Tests** (Swift Testing) und **UI-Tests** (XCTest)
 
 ### Datenabgleich
-1. **App im Vordergrund:** Abgleich beim Start, bei Pull-to-Refresh und nach jedem Eintrag.
-2. **Hintergrund:** `BGAppRefreshTask` (iOS bestimmt den Zeitpunkt). Damit werden Wechsel
-   erkannt, die andere Apps eingetragen haben.
+1. **App im Vordergrund:** Nightscout-Abgleich beim Start, bei Pull-to-Refresh und nach jedem
+   Eintrag. iCloud synchronisiert der Store selbst.
+2. **Hintergrund:** `BGAppRefreshTask` (iOS bestimmt den Zeitpunkt) für Nightscout. Für iCloud
+   kommen stille CloudKit-Pushes, wenn ein anderes Gerät einen Schlauchwechsel einträgt.
 3. **Offline:** Eigene Einträge landen sofort in der lokalen DB und, nur bei Nightscout-Timern,
-   in der Queue. Timer, Widgets und Erinnerungen werden direkt aktualisiert, das Senden passiert,
-   sobald wieder Netz da ist.
-4. Nach jeder Änderung: Widget-Timelines und Controls neu laden und alle Erinnerungen neu
-   planen.
+   in der Queue. Schlauch-Einträge liefert CloudKit von selbst nach. Timer, Widgets und
+   Erinnerungen werden direkt aktualisiert.
+4. Nach jeder Änderung aus Nightscout, iCloud oder einem eigenen Eintrag: Widget-Timelines und
+   Controls neu laden und alle Erinnerungen neu planen.
+
+### Zugriff aus der Widget-Extension
+Die Widget-Extension liest die Daten, schreibt aber nicht selbst in den CloudKit-Store. Ein
+Eintrag per Widget-Button oder Control wird über ein App Intent an die App übergeben bzw. in die
+gemeinsame Datenbank geschrieben, ohne dass zwei Prozesse gleichzeitig mit CloudKit
+synchronisieren. Wie das genau am robustesten geht, klärt ein Spike in Phase 0 (siehe Risiken).
+Rückfallebene: Die App schreibt nach jeder Änderung einen kleinen Snapshot (JSON) in die App
+Group, den die Widgets lesen.
 
 ---
 
 ## 5. Erinnerungen: Benachrichtigungen, Alarme, Countdown
 
-Alle Erinnerungen werden **lokal geplant**, ein Push-Server ist nicht nötig. Nightscout kann
-Apps keine Push-Nachrichten senden, aber die Wechselzeitpunkte stehen vorher fest. Nach jedem
-Abgleich oder Eintrag berechnet `TimerCore` einen Erinnerungsplan, und der `ReminderScheduler`
-ersetzt damit alle bisherigen Erinnerungen. Das ist idempotent und testbar.
+Alle Erinnerungen werden **lokal geplant**, ein eigener Push-Server ist nicht nötig. Nightscout
+kann Apps keine Push-Nachrichten senden, aber die Wechselzeitpunkte stehen vorher fest. Nach
+jedem Abgleich oder Eintrag berechnet `TimerCore` einen Erinnerungsplan, und der
+`ReminderScheduler` ersetzt damit alle bisherigen Erinnerungen. Das ist idempotent und testbar.
+
+Jedes Gerät plant seine Erinnerungen selbst. Wird der Schlauch auf einem anderen Gerät als
+gewechselt eingetragen, plant dieses Gerät nach dem iCloud-Abgleich neu.
 
 ### Stufen
 | Stufe | Mechanismus | Verhalten |
 |---|---|---|
 | Info | Benachrichtigung (`active`) | Banner, respektiert Ruhezeiten |
 | Warnung | Benachrichtigung (`timeSensitive`) | Banner, respektiert Ruhezeiten |
-| Countdown | AlarmKit-Countdown als Live Activity | erscheint eine einstellbare Zeit vor „dringend“ (Standard 2 h) im Dynamic Island und auf dem Sperrbildschirm |
+| Countdown | AlarmKit-Countdown als Live Activity | erscheint **2 Stunden** vor „dringend“ (einstellbar) im Dynamic Island und auf dem Sperrbildschirm |
 | Dringend | **AlarmKit-Alarm** | klingelt auch im Stummmodus und bei Fokus, Vollbild-Alarm |
 
 Jede Stufe lässt sich pro Timer abschalten. Wer keinen AlarmKit-Zugriff erlaubt, bekommt für
@@ -215,6 +247,7 @@ Jede Stufe lässt sich pro Timer abschalten. Wer keinen AlarmKit-Zugriff erlaubt
 - **Alarm:** Hauptbutton „Jetzt gewechselt“ (über `LiveActivityIntent`), zweiter Button
   „Später“ (Schlummern, einstellbare Dauer).
 - **Live Activity:** Button „Gewechselt“ direkt im Countdown.
+- Bei Kanüle gilt überall der Standard „Schlauch auch gewechselt“ (an).
 
 ### Ruhezeiten
 Info- und Warnungs-Benachrichtigungen, die nachts fällig würden, werden auf eine einstellbare
@@ -230,8 +263,7 @@ der Alarm in der Ruhezeit auf deren Ende verschieben.
 - Je Timer höchstens ein Alarm. Bei jeder Neuplanung werden die alten über ihre ID abgesagt.
 - **Technischer Spike zu Beginn von Phase 4:** prüfen, wie der Countdown vor einem
   terminierten Alarm genau gestartet werden kann (Vor-Countdown von AlarmKit oder eigene Live
-  Activity), wie lange er laufen darf, und ob die Systemgrenzen für Live Activities den
-  Standard von 2 h zulassen.
+  Activity) und ob die Systemgrenzen für Live Activities den Vorlauf von 2 Stunden zulassen.
 
 ---
 
@@ -256,9 +288,11 @@ der Alarm in der Ruhezeit auf deren Ende verschieben.
 
 ## 7. Siri, Kurzbefehle, Spotlight
 
-- `LogChangeIntent(kind:, date:, note:)` mit **interaktivem Snippet**: zeigt das aktuelle Alter
-  und fragt „Jetzt als gewechselt eintragen?“ mit den Buttons „Eintragen“ und „Abbrechen“.
-- Beim Kanülenwechsel zeigt das Snippet zusätzlich den Schalter „Schlauch auch gewechselt“.
+- `LogChangeIntent(kind:, date:, note:, alsoTubing:)` mit **interaktivem Snippet**: zeigt das
+  aktuelle Alter und fragt „Jetzt als gewechselt eintragen?“ mit den Buttons „Eintragen“ und
+  „Abbrechen“.
+- Beim Kanülenwechsel zeigt das Snippet zusätzlich den Schalter „Schlauch auch gewechselt“
+  (standardmäßig an).
 - `GetTimerStatusIntent(kind:)` gibt Alter und Status zurück, z. B. für eigene Automationen in
   Kurzbefehlen.
 - App Shortcuts mit deutschen und englischen Phrasen („Kanüle gewechselt in Wechsel-Timer“).
@@ -268,32 +302,56 @@ der Alarm in der Ruhezeit auf deren Ende verschieben.
 ## 8. Bedienung
 
 - **Übersicht:** Je Timer eine Karte mit Ampelring, Alter und „fällig in …“. Der Schlauch-Timer
-  trägt ein kleines Symbol „nur auf diesem Gerät“. Langes Drücken öffnet „Gewechselt um …“
-  (abweichende Uhrzeit) und Notiz.
-- **Verlauf:** Liste je Typ, Tragedauer pro Wechsel, Durchschnitt der letzten 10.
-- **Einstellungen:** Server und Token, Verbindungstest, Timer an/aus, Schwellen, Erinnerungs-
-  stufen pro Timer, Countdown-Vorlauf, Ruhezeiten, Standardwert für „Schlauch auch gewechselt“.
-- **Einrichtung:** URL → Token → Test → Schwellen übernehmen → letzter Schlauchwechsel
-  (optional) → Benachrichtigungen erlauben → Alarme erlauben.
+  trägt ein kleines iCloud-Symbol, durchgestrichen wenn iCloud nicht verfügbar ist. Langes
+  Drücken öffnet „Gewechselt um …“ (abweichende Uhrzeit) und Notiz.
+- **Verlauf:** Liste je Typ, Tragedauer pro Wechsel, Durchschnitt der letzten 10. Beim
+  Schlauch zusätzlich, auf welchem Gerät eingetragen wurde.
+- **Einstellungen:** Server und Token, Verbindungstest, iCloud-Status, Timer an/aus, Schwellen,
+  Erinnerungsstufen pro Timer, Countdown-Vorlauf (Standard 2 h), Ruhezeiten,
+  „Schlauch auch gewechselt“ (Standard an).
+- **Einrichtung:** URL → Token → Test → Schwellen übernehmen → letzter Schlauchwechsel (nur
+  wenn in iCloud nichts liegt) → Benachrichtigungen erlauben → Alarme erlauben.
 - Liquid-Glass-Design mit Systemkomponenten, Lokalisierung Deutsch und Englisch
   (String Catalog), Dynamic Type, VoiceOver und Farbenblindheit (Ampel zusätzlich mit Symbol).
 
 ---
 
-## 9. Verteilung über TestFlight
+## 9. Verteilung über TestFlight (nur intern)
 
 - Voraussetzung: Mitgliedschaft im **Apple Developer Program**, App-Eintrag in App Store Connect
   (wird nicht veröffentlicht).
-- **Interne Tester** (Mitglieder des Teams in App Store Connect) bekommen Builds ohne Prüfung
-  durch Apple. **Externe Tester** brauchen eine Beta-App-Prüfung für die erste Version und bei
-  größeren Änderungen.
-- TestFlight-Builds laufen nach **90 Tagen** ab. Für eine Alltags-App heißt das: regelmäßig neue
-  Builds hochladen. Das übernimmt die CI (Xcode Cloud oder GitHub Actions mit fastlane), z. B.
-  bei jedem Tag `v*` und zusätzlich monatlich.
-- Entitlements und Capabilities: App Groups, Keychain Sharing, Background Modes (Background
-  fetch), Push nicht nötig. AlarmKit braucht nur den Info.plist-Eintrag.
-- Beta-Beschreibung und Testhinweise enthalten den Hinweis „kein Medizinprodukt“ und eine
-  Anleitung zum Anlegen des `careportal`-Tokens.
+- **Nur interne Tester:** Personen, die als Benutzer im App-Store-Connect-Team angelegt sind
+  (bis zu 100). Builds stehen ohne Beta-App-Prüfung durch Apple zur Verfügung.
+- TestFlight-Builds laufen nach **90 Tagen** ab. Die CI lädt deshalb regelmäßig neue Builds hoch
+  (siehe unten).
+- **CloudKit:** TestFlight-Builds nutzen die **Produktionsumgebung** von CloudKit. Das
+  CloudKit-Schema muss vor dem ersten TestFlight-Build und nach jeder Modelländerung im CloudKit
+  Dashboard nach Production übertragen werden. Schemaänderungen nur hinzufügend, nie Felder
+  löschen oder umbenennen.
+- **Capabilities:** App Groups, Keychain Sharing, iCloud (CloudKit, Container
+  `iCloud.<bundle-id>`), Push Notifications und Background Modes (Background fetch, Remote
+  notifications). Push wird nur für die stillen CloudKit-Benachrichtigungen gebraucht, es gibt
+  keinen eigenen Push-Server. AlarmKit braucht nur den Info.plist-Eintrag.
+- Testhinweise in TestFlight enthalten den Hinweis „kein Medizinprodukt“ und eine Anleitung zum
+  Anlegen des `careportal`-Tokens.
+
+### CI: GitHub Actions mit fastlane
+| Workflow | Auslöser | Schritte |
+|---|---|---|
+| `ci.yml` | jeder Push und Pull Request | Build, Unit-Tests, UI-Tests im Simulator |
+| `testflight.yml` | Tag `v*`, manuell, und **monatlich per Zeitplan** | Build-Nummer erhöhen, signieren, `gym` (Archiv), `pilot` (Upload an interne Tester) |
+
+- Runner: `macos`-Runner von GitHub mit Xcode 26 (`xcode-select` auf die feste Version).
+- **Signierung:** `fastlane match` mit einem separaten, privaten Repo für Zertifikate und
+  Profile (Typ `appstore`). Die Workflows laufen mit `readonly: true`, Zertifikate werden nur
+  lokal erneuert.
+- **App Store Connect API-Schlüssel** für `pilot` statt Apple-ID und Passwort.
+- **Secrets in GitHub:** `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8`, `MATCH_PASSWORD`,
+  `MATCH_GIT_BASIC_AUTHORIZATION` (oder Deploy-Key für das Zertifikats-Repo).
+- Build-Nummer: `latest_testflight_build_number + 1`, Versionsnummer aus dem Tag.
+- `pilot` mit `skip_waiting_for_build_processing`, Verteilung an die interne Gruppe, Changelog
+  aus den Commits seit dem letzten Tag.
+- Der monatliche Lauf sorgt dafür, dass nie alle Builds gleichzeitig ablaufen.
 
 ---
 
@@ -301,13 +359,13 @@ der Alarm in der Ruhezeit auf deren Ende verschieben.
 
 | Phase | Ergebnis | Abnahme |
 |---|---|---|
-| **0 – Gerüst** | Xcode-Projekt (iOS 26), Targets, Packages, App Group, Keychain-Sharing, CI (Build + Tests) | Leere App und Widget bauen, Tests laufen |
+| **0 – Gerüst** | Xcode-Projekt (iOS 26), Targets, Packages, App Group, Keychain-Sharing, iCloud-Container, fastlane, `ci.yml`, Spike SwiftData + CloudKit mit Widget-Extension | Leere App und Widget bauen, Tests laufen in GitHub Actions, Testdatensatz synchronisiert zwischen zwei Geräten |
 | **1 – Anbindung** | Einrichtung, `NightscoutKit` (v3 + v1), Fähigkeitserkennung, Lesen der letzten Wechsel | Verbindung zu einem echten Server, Timer zeigen echte Daten |
-| **2 – Timer** | `TimerCore` inkl. lokalem Schlauch-Timer, Übersicht, Schwellen vom Server und lokal, Verlauf | Unit-Tests für Statusberechnung inkl. Zeitzonen- und DST-Fällen |
-| **3 – Eintragen** | Wechsel loggen, „Schlauch auch gewechselt“, Offline-Queue, Duplikatschutz, Korrigieren/Löschen, Rückgängig | Nightscout-Eintrag erscheint genau einmal, Schlauch-Eintrag erscheint nie in Nightscout |
+| **2 – Timer** | `TimerCore` inkl. Schlauch-Timer, Übersicht, Schwellen vom Server und lokal, Verlauf | Unit-Tests für Statusberechnung inkl. Zeitzonen- und DST-Fällen |
+| **3 – Eintragen** | Wechsel loggen, „Schlauch auch gewechselt“, Offline-Queue, Duplikatschutz, Korrigieren/Löschen, Rückgängig | Nightscout-Eintrag erscheint genau einmal. Schlauch-Eintrag erscheint auf dem zweiten Gerät, nie in Nightscout |
 | **4 – Erinnerungen** | AlarmKit-Spike, Benachrichtigungen, Alarme, Countdown-Live-Activity, Aktionen, Ruhezeiten, Hintergrund-Abgleich | Alarm klingelt im Stummmodus, „Jetzt gewechselt“ funktioniert aus Benachrichtigung, Alarm und Live Activity |
-| **5 – Widgets & Intents** | Lock- und Home-Screen-Widgets, CarPlay, Kontrollzentrum, Siri/Kurzbefehle mit Snippets | Widget und Control aktualisieren sich nach Eintrag aus jeder Quelle |
-| **6 – TestFlight** | Lokalisierung, Barrierefreiheit, App-Icon, Upload-Pipeline, erste interne Version | Build installierbar über TestFlight |
+| **5 – Widgets & Intents** | Lock- und Home-Screen-Widgets, CarPlay, Kontrollzentrum, Siri/Kurzbefehle mit Snippets | Widget und Control aktualisieren sich nach Eintrag aus jeder Quelle, auch von einem anderen Gerät |
+| **6 – TestFlight** | Lokalisierung, Barrierefreiheit, App-Icon, CloudKit-Schema in Production, `testflight.yml` | Build über TestFlight für interne Tester installierbar, Schlauch-Sync funktioniert im TestFlight-Build |
 
 ---
 
@@ -315,13 +373,14 @@ der Alarm in der Ruhezeit auf deren Ende verschieben.
 
 - **Unit-Tests (Swift Testing):** Timer-Status, Schwellenübernahme, Erinnerungsplan (welche
   Stufe über welchen Mechanismus, Ruhezeiten, Snooze), JSON-Dekodierung (Beispielantworten von
-  v1 und v3 als Fixtures), Offline-Queue, **Schlauch-Ereignisse werden nie in die Queue
-  aufgenommen**.
+  v1 und v3 als Fixtures), Offline-Queue, **Schlauch-Einträge werden nie in die Queue
+  aufgenommen**, „Schlauch auch gewechselt“ erzeugt genau einen `TubingChange`.
 - **Integrationstests:** gegen einen lokalen Nightscout per Docker (`nightscout/cgm-remote-monitor`
-  + MongoDB), Lesen, Schreiben, Duplikatschutz, Token-Rollen.
+  + MongoDB), Lesen, Schreiben, Duplikatschutz, Token-Rollen. Laufen lokal, in der CI optional.
 - **UI-Tests:** Einrichtung, Wechsel eintragen, Rückgängig.
-- **Manuell auf echtem Gerät:** AlarmKit im Stummmodus und mit Fokus, Live Activity im Dynamic
-  Island, CarPlay-Widget (Simulator), Kontrollzentrum.
+- **Manuell auf echten Geräten:** AlarmKit im Stummmodus und mit Fokus, Live Activity im
+  Dynamic Island, CarPlay-Widget (Simulator), Kontrollzentrum, **iCloud-Sync zwischen zwei
+  Geräten** (auch nach Offline-Phase und mit abgemeldetem iCloud).
 
 ---
 
@@ -331,21 +390,36 @@ der Alarm in der Ruhezeit auf deren Ende verschieben.
 |---|---|
 | Server-Versionen unterscheiden sich (v3 fehlt, Felder fehlen) | Fähigkeitserkennung, v1-Fallback, tolerante Dekodierung |
 | Hintergrund-Abgleich ist unzuverlässig | Erinnerungen sind lokal geplant und funktionieren trotzdem. Beim Öffnen der App wird sofort abgeglichen |
-| Wechsel wird von einer anderen App eingetragen, Alarm ist noch alt geplant | Neuplanung nach jedem Abgleich. Bis zum nächsten Abgleich kann ein überflüssiger Alarm kommen, der Alarm zeigt deshalb „Zuletzt abgeglichen: …“ |
+| Wechsel wird von einer anderen App oder einem anderen Gerät eingetragen, Alarm ist noch alt geplant | Neuplanung nach jedem Abgleich. Bis dahin kann ein überflüssiger Alarm kommen, der Alarm zeigt deshalb „Zuletzt abgeglichen: …“ |
 | Countdown vor einem terminierten Alarm technisch eingeschränkt | Spike in Phase 4, notfalls Countdown erst kurz vor Fälligkeit oder nur Alarm ohne Countdown |
-| Schlauch-Daten gehen bei Neuinstallation verloren | Hinweis in Einstellungen, Abfrage des letzten Wechsels in der Einrichtung |
-| Versehentlicher Eintrag per Widget oder Control | Bestätigung im Control, Rückgängig-Funktion, Eintrag mit eigener `identifier` löschbar |
+| SwiftData + CloudKit zusammen mit einer Widget-Extension (zwei Prozesse) | Spike in Phase 0, Extension schreibt nicht direkt in den CloudKit-Store, Rückfallebene JSON-Snapshot |
+| CloudKit-Schema nicht in Production übertragen | Fester Schritt in der Release-Checkliste, Phase-6-Abnahme prüft Sync im TestFlight-Build |
+| iCloud nicht verfügbar oder andere Apple-ID | Timer funktioniert lokal weiter, iCloud-Status in den Einstellungen und auf der Karte |
+| Versehentlicher Eintrag per Widget oder Control | Bestätigung im Control, Rückgängig-Funktion, Eintrag mit eigener ID löschbar |
 | Token mit zu vielen Rechten | Einrichtung empfiehlt die Rolle `careportal` und warnt bei `API_SECRET` |
-| TestFlight-Builds laufen nach 90 Tagen ab | Automatischer Upload per CI, Erinnerung im Kalender |
+| TestFlight-Builds laufen nach 90 Tagen ab | Monatlicher automatischer Upload per GitHub Actions |
+| Zertifikate oder API-Schlüssel laufen ab | `match` mit Ablaufwarnung, Erinnerung zur Erneuerung |
 | Zeitzonen und Uhrumstellung | UTC intern, `utcOffset` beim Schreiben, eigene Testfälle |
 
 ---
 
-## 13. Offene Punkte
+## 13. Entscheidungen
 
-- **Schwellen für den Schlauch:** Welche Standardwerte (Vorschlag 120 h / 144 h / 168 h)? Das
-  hängt vom Schlauchsystem und den Angaben des Herstellers ab.
-- **Standard für „Schlauch auch gewechselt“:** immer an, immer aus oder abhängig vom Alter?
-- **Countdown-Vorlauf:** Ist 2 h vor „dringend“ sinnvoll, oder lieber ab der Warnung?
-- **Externe Tester:** Nur interne Tester, oder auch externe (dann mit Beta-App-Prüfung)?
-- **CI:** Xcode Cloud oder GitHub Actions mit fastlane für den TestFlight-Upload?
+| Thema | Entscheidung |
+|---|---|
+| Plattform | iOS, Mindestversion iOS 26 |
+| Fokus | Wechsel-Timer |
+| Nightscout | genau ein Server |
+| Schlauch-Timer | über iCloud (private CloudKit-Datenbank), nie Nightscout |
+| Schlauch-Schwellen | 5 / 6 / 7 Tage (Warnung nach 6 Tagen) |
+| „Schlauch auch gewechselt“ | standardmäßig an |
+| Countdown-Vorlauf | 2 Stunden vor „dringend“ |
+| Verteilung | TestFlight, nur interne Tester |
+| CI / Upload | GitHub Actions mit fastlane (`match`, `gym`, `pilot`) |
+
+## 14. Offene Punkte
+
+- **Bundle-ID und Apple-Team:** nötig für App Group, iCloud-Container und `match`.
+- **Zertifikats-Repo für `match`:** neues privates Repo anlegen, oder lieber Signierung über den
+  App-Store-Connect-API-Schlüssel ohne eigenes Repo?
+- **App-Name:** „Wechsel-Timer“ als Arbeitstitel, oder ein anderer Name für TestFlight?
