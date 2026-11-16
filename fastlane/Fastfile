@@ -143,8 +143,7 @@ platform :ios do
 
     configure_bundle_id("DiabTimer", APP_ID, [
       Spaceship::ConnectAPI::BundleIdCapability::Type::APP_GROUPS,
-      Spaceship::ConnectAPI::BundleIdCapability::Type::ICLOUD,
-      Spaceship::ConnectAPI::BundleIdCapability::Type::USERNOTIFICATIONS_TIMESENSITIVE
+      Spaceship::ConnectAPI::BundleIdCapability::Type::ICLOUD
     ])
 
     configure_bundle_id("DiabTimer Widget Extension", WIDGET_ID, [

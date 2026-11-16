@@ -57,6 +57,8 @@ enum ReminderScheduler {
             content.title = title(for: reminder)
             content.body = body(for: reminder, state: state)
             content.sound = .default
+            // „Zeitkritisch“ bräuchte die Capability Time Sensitive Notifications, die sich über die
+            // App-Store-Connect-API nicht aktivieren lässt. Ohne sie stellt iOS die Mitteilung normal zu.
             content.interruptionLevel = reminder.level >= .warn ? .timeSensitive : .active
             content.categoryIdentifier = reminderCategory
             content.threadIdentifier = "reminders"
