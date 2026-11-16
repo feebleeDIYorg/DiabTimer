@@ -23,11 +23,11 @@ final class MockTransport: HTTPTransport, @unchecked Sendable {
         return _requests
     }
 
-    func on(_ method: String = "GET", _ pathSuffix: String, status: Int = 200, fixture: String) {
-        on(method, pathSuffix, status: status, body: Self.fixture(fixture))
+    func on(_ pathSuffix: String, method: String = "GET", status: Int = 200, fixture: String) {
+        on(pathSuffix, method: method, status: status, body: Self.fixture(fixture))
     }
 
-    func on(_ method: String = "GET", _ pathSuffix: String, status: Int = 200, body: Data = Data("{}".utf8)) {
+    func on(_ pathSuffix: String, method: String = "GET", status: Int = 200, body: Data = Data("{}".utf8)) {
         lock.lock()
         defer { lock.unlock() }
         // Neuere Routen haben Vorrang.

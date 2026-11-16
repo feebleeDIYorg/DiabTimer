@@ -71,7 +71,7 @@ struct NightscoutClientTests {
 
     @Test func forbiddenIsReported() async throws {
         let transport = MockTransport()
-        transport.on("DELETE", "/api/v3/treatments/abc", status: 403, body: Data("{\"message\":\"Missing permission\"}".utf8))
+        transport.on("/api/v3/treatments/abc", method: "DELETE", status: 403, body: Data("{\"message\":\"Missing permission\"}".utf8))
         await #expect(throws: NightscoutError.forbidden) {
             try await makeClient(transport).delete(identifier: "abc")
         }
@@ -126,7 +126,7 @@ struct NightscoutClientTests {
 
     @Test func createSendsRequiredFields() async throws {
         let transport = MockTransport()
-        transport.on("POST", "/api/v3/treatments", status: 201, fixture: "created")
+        transport.on("/api/v3/treatments", method: "POST", status: 201, fixture: "created")
         let date = Date(timeIntervalSince1970: 1_794_817_800.125)
         let treatment = NewTreatment(
             eventType: NightscoutEventType.siteChange,
@@ -158,8 +158,8 @@ struct NightscoutClientTests {
 
     @Test func patchAndDeleteUseIdentifier() async throws {
         let transport = MockTransport()
-        transport.on("PATCH", "/api/v3/treatments/abc")
-        transport.on("DELETE", "/api/v3/treatments/abc")
+        transport.on("/api/v3/treatments/abc", method: "PATCH")
+        transport.on("/api/v3/treatments/abc", method: "DELETE")
         let client = makeClient(transport)
         try await client.patch(identifier: "abc", TreatmentPatch(notes: "neu"))
         try await client.delete(identifier: "abc")
