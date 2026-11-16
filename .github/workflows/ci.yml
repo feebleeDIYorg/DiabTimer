@@ -66,6 +66,8 @@ jobs:
             -scheme DiabTimer \
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -resultBundlePath TestResults.xcresult \
+            -retry-tests-on-failure \
+            -test-iterations 2 \
             DEVELOPMENT_TEAM=CITEAM0000 \
             CODE_SIGNING_ALLOWED=NO \
             > xcodebuild.log 2>&1
