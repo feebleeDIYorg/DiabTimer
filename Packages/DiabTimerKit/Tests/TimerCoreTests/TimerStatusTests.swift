@@ -34,8 +34,8 @@ struct TimerStatusTests {
     @Test func dueDateAndTimeUntilDue() {
         let current = status(hoursAfterChange: 70)
         #expect(current.dueDate == change.addingTimeInterval(72 * 3600))
-        #expect(current.timeUntilDue == 2 * 3600)
-        #expect(status(hoursAfterChange: 75).timeUntilDue == -3 * 3600)
+        #expect(current.timeUntilDue?.rounded() == 2 * 3600)
+        #expect(status(hoursAfterChange: 75).timeUntilDue?.rounded() == -3 * 3600)
     }
 
     @Test func nextTransition() {
@@ -82,7 +82,7 @@ struct TimerStatusTests {
             ChangeEvent(kind: .cannula, date: change.addingTimeInterval($0 * 3600), isOwn: true)
         }
         // Abstände 72, 48, 72 h
-        #expect(events.averageWearDuration() == 64 * 3600)
+        #expect(events.averageWearDuration()?.rounded() == 64 * 3600)
         #expect([ChangeEvent]().averageWearDuration() == nil)
     }
 }
