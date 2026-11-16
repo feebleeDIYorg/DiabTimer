@@ -335,23 +335,71 @@ der Alarm in der Ruhezeit auf deren Ende verschieben.
 - Testhinweise in TestFlight enthalten den Hinweis „kein Medizinprodukt“ und eine Anleitung zum
   Anlegen des `careportal`-Tokens.
 
-### CI: GitHub Actions mit fastlane
-| Workflow | Auslöser | Schritte |
-|---|---|---|
-| `ci.yml` | jeder Push und Pull Request | Build, Unit-Tests, UI-Tests im Simulator |
-| `testflight.yml` | Tag `v*`, manuell, und **monatlich per Zeitplan** | Build-Nummer erhöhen, signieren, `gym` (Archiv), `pilot` (Upload an interne Tester) |
+### CI: GitHub Actions mit fastlane und dem bestehenden `Match-Secrets`-Repo
 
-- Runner: `macos`-Runner von GitHub mit Xcode 26 (`xcode-select` auf die feste Version).
-- **Signierung:** `fastlane match` mit einem separaten, privaten Repo für Zertifikate und
-  Profile (Typ `appstore`). Die Workflows laufen mit `readonly: true`, Zertifikate werden nur
-  lokal erneuert.
-- **App Store Connect API-Schlüssel** für `pilot` statt Apple-ID und Passwort.
-- **Secrets in GitHub:** `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8`, `MATCH_PASSWORD`,
-  `MATCH_GIT_BASIC_AUTHORIZATION` (oder Deploy-Key für das Zertifikats-Repo).
+Für die Signierung wird das **bestehende private Repo `feebleeDIYorg/Match-Secrets`**
+verwendet. Dort liegen bereits das Verteilungszertifikat und die App-Store-Profile für Loop,
+Trio, xDrip4iOS, LoopFollow und InsulinOCR (fastlane match 2.241.1, Typ `appstore`). Die neue
+App bekommt dort nur **zusätzliche Profile**, das vorhandene Zertifikat wird mitbenutzt.
+
+Der Aufbau folgt dem Ablauf, den die Browser-Builds von Loop und Trio mit demselben Repo nutzen:
+
+| Workflow | Auslöser | Aufgabe |
+|---|---|---|
+| `ci.yml` | jeder Push und Pull Request | Build, Unit-Tests, UI-Tests im Simulator. Braucht keine Secrets |
+| `1-validate-secrets.yml` | manuell | Prüft, ob alle Secrets gesetzt sind und der API-Schlüssel sowie der Zugriff auf `Match-Secrets` funktionieren |
+| `2-add-identifiers.yml` | manuell, einmalig und nach Capability-Änderungen | Legt die Bundle-IDs mit ihren Capabilities im Developer-Portal an (App Groups, iCloud/CloudKit, Push) |
+| `3-create-certificates.yml` | manuell, einmalig und nach Capability-Änderungen | `match appstore` mit `readonly: false` für **nur die Bundle-IDs dieser App**: erzeugt die Profile und legt sie verschlüsselt in `Match-Secrets` ab |
+| `4-testflight.yml` | Tag `v*`, manuell und **monatlich per Zeitplan** | `match` mit `readonly: true`, Build-Nummer erhöhen, `gym` (Archiv), `pilot` (Upload an die interne Gruppe) |
+
+#### Secrets
+Dieselben Namen wie bei Loop, Trio und LoopFollow. Sind sie in `feebleeDIYorg` bereits als
+**Organisations-Secrets** angelegt, bekommt dieses Repo sie automatisch, sobald es freigegeben
+ist. Sonst werden sie in diesem Repo mit denselben Werten angelegt.
+
+| Secret | Inhalt |
+|---|---|
+| `TEAMID` | Apple-Team-ID (wird nicht ins öffentliche Repo geschrieben, Bundle-IDs werden im Workflow daraus zusammengesetzt, wo nötig) |
+| `FASTLANE_KEY_ID` | ID des App-Store-Connect-API-Schlüssels |
+| `FASTLANE_ISSUER_ID` | Issuer-ID des API-Schlüssels |
+| `FASTLANE_KEY` | Inhalt der `.p8`-Datei |
+| `GH_PAT` | GitHub-Token mit Zugriff auf `Match-Secrets` (Lesen und Schreiben) |
+| `MATCH_PASSWORD` | Passwort, mit dem `Match-Secrets` verschlüsselt ist |
+
+#### Fastfile (Kern)
+```ruby
+def match_settings(readonly:)
+  {
+    type: "appstore",
+    git_url: "https://github.com/#{ENV['GITHUB_REPOSITORY_OWNER']}/Match-Secrets",
+    git_basic_authorization: Base64.strict_encode64("#{ENV['GITHUB_REPOSITORY_OWNER']}:#{ENV['GH_PAT']}"),
+    app_identifier: [APP_ID, "#{APP_ID}.widget"],
+    team_id: ENV["TEAMID"],
+    api_key: api_key,          # app_store_connect_api_key aus FASTLANE_KEY_*
+    readonly: readonly
+  }
+end
+```
+- `app_identifier` enthält **nur** die Bundle-IDs dieser App. Dadurch ändert `match` keine
+  Profile der anderen Apps.
+- Nach einer Capability-Änderung (z. B. neuer iCloud-Container) wird `3-create-certificates`
+  mit `force: true` ausgeführt. Das erneuert nur die Profile dieser App, nicht das Zertifikat.
+- **Niemals `match nuke`** oder neue Verteilungszertifikate aus diesem Repo heraus erzeugen. Das
+  würde das gemeinsame Zertifikat widerrufen, und Loop, Trio, xDrip4iOS, LoopFollow und
+  InsulinOCR müssten alle neu signiert werden.
+- Läuft das gemeinsame Zertifikat ab, wird es zentral erneuert (wie bei den anderen Apps), danach
+  laufen hier `3-create-certificates` und `4-testflight` erneut.
+
+#### Weitere Details
+- Runner: macOS-Image von GitHub mit Xcode 26, feste Xcode-Version per `xcode-select`.
+- fastlane-Version per `Gemfile`/`Gemfile.lock` festgelegt, mindestens die Version, mit der
+  `Match-Secrets` zuletzt geschrieben wurde (2.241.1).
 - Build-Nummer: `latest_testflight_build_number + 1`, Versionsnummer aus dem Tag.
 - `pilot` mit `skip_waiting_for_build_processing`, Verteilung an die interne Gruppe, Changelog
   aus den Commits seit dem letzten Tag.
 - Der monatliche Lauf sorgt dafür, dass nie alle Builds gleichzeitig ablaufen.
+- Das Repo `management-timer` ist öffentlich: Workflows mit Secrets laufen nur auf Branches
+  dieses Repos und nie für Pull Requests aus Forks.
 
 ---
 
@@ -359,13 +407,13 @@ der Alarm in der Ruhezeit auf deren Ende verschieben.
 
 | Phase | Ergebnis | Abnahme |
 |---|---|---|
-| **0 – Gerüst** | Xcode-Projekt (iOS 26), Targets, Packages, App Group, Keychain-Sharing, iCloud-Container, fastlane, `ci.yml`, Spike SwiftData + CloudKit mit Widget-Extension | Leere App und Widget bauen, Tests laufen in GitHub Actions, Testdatensatz synchronisiert zwischen zwei Geräten |
+| **0 – Gerüst** | Xcode-Projekt (iOS 26), Targets, Packages, App Group, Keychain-Sharing, iCloud-Container, fastlane, `ci.yml`, Workflows 1–3 gegen `Match-Secrets`, Spike SwiftData + CloudKit mit Widget-Extension | Leere App und Widget bauen, Tests laufen in GitHub Actions, Profile für App und Widget liegen in `Match-Secrets`, Testdatensatz synchronisiert zwischen zwei Geräten |
 | **1 – Anbindung** | Einrichtung, `NightscoutKit` (v3 + v1), Fähigkeitserkennung, Lesen der letzten Wechsel | Verbindung zu einem echten Server, Timer zeigen echte Daten |
 | **2 – Timer** | `TimerCore` inkl. Schlauch-Timer, Übersicht, Schwellen vom Server und lokal, Verlauf | Unit-Tests für Statusberechnung inkl. Zeitzonen- und DST-Fällen |
 | **3 – Eintragen** | Wechsel loggen, „Schlauch auch gewechselt“, Offline-Queue, Duplikatschutz, Korrigieren/Löschen, Rückgängig | Nightscout-Eintrag erscheint genau einmal. Schlauch-Eintrag erscheint auf dem zweiten Gerät, nie in Nightscout |
 | **4 – Erinnerungen** | AlarmKit-Spike, Benachrichtigungen, Alarme, Countdown-Live-Activity, Aktionen, Ruhezeiten, Hintergrund-Abgleich | Alarm klingelt im Stummmodus, „Jetzt gewechselt“ funktioniert aus Benachrichtigung, Alarm und Live Activity |
 | **5 – Widgets & Intents** | Lock- und Home-Screen-Widgets, CarPlay, Kontrollzentrum, Siri/Kurzbefehle mit Snippets | Widget und Control aktualisieren sich nach Eintrag aus jeder Quelle, auch von einem anderen Gerät |
-| **6 – TestFlight** | Lokalisierung, Barrierefreiheit, App-Icon, CloudKit-Schema in Production, `testflight.yml` | Build über TestFlight für interne Tester installierbar, Schlauch-Sync funktioniert im TestFlight-Build |
+| **6 – TestFlight** | Lokalisierung, Barrierefreiheit, App-Icon, CloudKit-Schema in Production, `4-testflight.yml` | Build über TestFlight für interne Tester installierbar, Schlauch-Sync funktioniert im TestFlight-Build |
 
 ---
 
@@ -398,7 +446,9 @@ der Alarm in der Ruhezeit auf deren Ende verschieben.
 | Versehentlicher Eintrag per Widget oder Control | Bestätigung im Control, Rückgängig-Funktion, Eintrag mit eigener ID löschbar |
 | Token mit zu vielen Rechten | Einrichtung empfiehlt die Rolle `careportal` und warnt bei `API_SECRET` |
 | TestFlight-Builds laufen nach 90 Tagen ab | Monatlicher automatischer Upload per GitHub Actions |
-| Zertifikate oder API-Schlüssel laufen ab | `match` mit Ablaufwarnung, Erinnerung zur Erneuerung |
+| Gemeinsames Zertifikat in `Match-Secrets` wird versehentlich widerrufen | Kein `match nuke`, `app_identifier` nur mit eigenen Bundle-IDs, Workflow 4 nur `readonly: true` |
+| Gemeinsames Zertifikat oder API-Schlüssel läuft ab | Zentrale Erneuerung wie bei Loop und Trio, danach Workflows 3 und 4 neu ausführen |
+| Capability fehlt im Profil (z. B. iCloud-Container nicht zugeordnet) | Workflow 2 legt Capabilities an. Was die API nicht kann (Zuordnung des iCloud-Containers), wird einmalig im Developer-Portal erledigt, danach Workflow 3 mit `force: true` |
 | Zeitzonen und Uhrumstellung | UTC intern, `utcOffset` beim Schreiben, eigene Testfälle |
 
 ---
@@ -416,10 +466,14 @@ der Alarm in der Ruhezeit auf deren Ende verschieben.
 | Countdown-Vorlauf | 2 Stunden vor „dringend“ |
 | Verteilung | TestFlight, nur interne Tester |
 | CI / Upload | GitHub Actions mit fastlane (`match`, `gym`, `pilot`) |
+| Signierung | bestehendes Repo `feebleeDIYorg/Match-Secrets`, gemeinsames Verteilungszertifikat, eigene Profile |
 
 ## 14. Offene Punkte
 
-- **Bundle-ID und Apple-Team:** nötig für App Group, iCloud-Container und `match`.
-- **Zertifikats-Repo für `match`:** neues privates Repo anlegen, oder lieber Signierung über den
-  App-Store-Connect-API-Schlüssel ohne eigenes Repo?
+- **Bundle-ID:** Vorschlag nach dem Muster von InsulinOCR `ch.feebleediy.managementtimer` mit
+  `ch.feebleediy.managementtimer.widget`, App Group `group.ch.feebleediy.managementtimer` und
+  iCloud-Container `iCloud.ch.feebleediy.managementtimer`. Alternativ das Muster der
+  Loop-Forks mit der Team-ID im Namen.
+- **Secrets:** Sind `TEAMID`, `FASTLANE_*`, `GH_PAT` und `MATCH_PASSWORD` schon
+  Organisations-Secrets in `feebleeDIYorg`, oder müssen sie in diesem Repo angelegt werden?
 - **App-Name:** „Wechsel-Timer“ als Arbeitstitel, oder ein anderer Name für TestFlight?
